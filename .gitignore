@@ -1,0 +1,9 @@
+**/.terraform/
+**/*.auto.tfvars.json
+**.tfstate
+**.tfstate.*
+.env
+*.pem
+*.key
+*.crt
+*.kubeconfig
