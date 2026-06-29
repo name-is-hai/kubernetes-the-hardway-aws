@@ -38,3 +38,30 @@ module "vpc" {
     },
   ]
 }
+
+module "vpc_endpoints" {
+  source = "../../modules/vpc-endpoints"
+  vpc_id = module.vpc.vpc_id
+  vpc_endpoints = [
+    {
+      service_name      = "com.amazonaws.${var.aws_region}.s3"
+      route_table_ids   = values(module.vpc.private_route_table_ids)
+      vpc_endpoint_type = "Gateway"
+    },
+    {
+      service_name      = "com.amazonaws.${var.aws_region}.ec2messages"
+      subnet_ids        = values(module.vpc.private_subnet_ids)
+      vpc_endpoint_type = "Interface"
+    },
+    {
+      service_name      = "com.amazonaws.${var.aws_region}.ssm"
+      subnet_ids        = values(module.vpc.private_subnet_ids)
+      vpc_endpoint_type = "Interface"
+    },
+    {
+      service_name      = "com.amazonaws.${var.aws_region}.ssmmessages"
+      subnet_ids        = values(module.vpc.private_subnet_ids)
+      vpc_endpoint_type = "Interface"
+    },
+  ]
+}
