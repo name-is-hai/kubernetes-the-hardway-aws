@@ -1,258 +1,473 @@
 # AWS Self-Managed Kubernetes Hard-Way Lab Plan
 
-This plan keeps the project build incremental. Do not move to the next phase until the validation commands for the current phase pass from a clean setup.
-
 ## Project Shape
 
 - Terraform owns AWS infrastructure.
-- Packer builds the reusable base AMI after Ansible is proven.
+- Packer builds reusable role-specific AMIs before the cluster nodes are created.
 - Ansible installs and configures Kubernetes.
+- SSM Session Manager is the default access path for private instances.
 - S3 cache stores manifests, Helm charts, checksums, and optional binaries.
 - Scripts provide one-command workflows.
 - Tests validate cluster behavior and workload performance.
 
-## Operating Rules
+## Phase 0: Terraform Backend Bootstrap
 
-- Build Terraform first. Do not start Kubernetes until networking and EC2 are stable.
-- Keep the S3 cache bucket only if preserving cached assets is intentional.
-- Do not commit certificates, kubeconfigs, private keys, `.env`, or Terraform state.
-- Keep cluster-specific values in Ansible, not in the AMI.
-- Destroy the environment after study sessions to control cost.
-- Treat a phase as complete only after its validation commands pass.
-
-## Phase 1: Terraform Infrastructure
-
-Goal: create AWS networking and EC2 nodes with no Kubernetes installed.
+Learn:
+- Terraform local state vs remote state.
+- S3 backend.
+- State locking.
+- AWS credentials for backend init.
 
 Build:
+- S3 bucket for Terraform state.
+- Versioning.
+- Encryption.
+- Public access block.
+- Optional lockfile support.
 
-- VPC.
-- 3 public subnets.
-- 3 private subnets.
-- 1 NAT Gateway.
-- Route tables.
-- Security groups.
-- IAM role and instance profile for EC2.
-- 3 control-plane EC2 instances.
-- 3 worker EC2 instances.
-- Internal NLB for the Kubernetes API.
-- Public ALB for application ingress.
-- S3 Gateway Endpoint.
-- S3 cache bucket.
-
-Required EC2 tagging:
-
-- `Project = k8s-hardway`
-- `Environment = dev`
-- `Role = control-plane` or `worker`
-- `Name = cp-01`, `cp-02`, `cp-03`, `worker-01`, `worker-02`, or `worker-03`
-
-Required subnet tagging:
-
-- Every subnet should have `Project = k8s-hardway`.
-- Every subnet should have `Environment = dev`.
-- Every subnet should have a clear `Name`.
-- Public subnets should have `Tier = public`.
-- Private subnets should have `Tier = private`.
-
-Future AWS Load Balancer Controller subnet discovery tags:
-
-- Public subnets: `kubernetes.io/role/elb = 1`
-- Private subnets: `kubernetes.io/role/internal-elb = 1`
-
-These Kubernetes subnet tags are not required for plain EC2 or Terraform. They are useful if the cluster later uses AWS Load Balancer Controller or EKS-style automation to discover which subnets should receive internet-facing or internal load balancers.
-
-Validation:
+Validate:
 
 ```bash
+aws sts get-caller-identity
+terraform -chdir=terraform/bootstrap init
+terraform -chdir=terraform/bootstrap apply
 terraform -chdir=terraform/environments/dev init
-terraform -chdir=terraform/environments/dev apply
-terraform -chdir=terraform/environments/dev output
-aws ec2 describe-instances --filters "Name=tag:Project,Values=k8s-hardway"
-terraform -chdir=terraform/environments/dev destroy
 ```
 
 Done when:
+- Remote backend initializes successfully.
+- State is stored in S3.
+- No state files are committed.
 
-- Terraform can create and destroy all infrastructure cleanly.
-- Outputs include control-plane private IPs, worker private IPs, API NLB DNS, app ALB DNS, and S3 cache bucket name.
-- EC2 instances are discoverable by AWS tags.
-- No Kubernetes or Ansible configuration is required for this phase to pass.
+## Phase 1: AWS Network Foundation
 
-## Phase 2: Ansible Common Setup
-
-Goal: Ansible can connect to all private nodes and configure Linux basics.
+Learn:
+- VPC is regional.
+- Subnets are AZ-level.
+- CIDR blocks.
+- DNS support and DNS hostnames.
+- Internet Gateway.
+- Regional NAT Gateway.
+- Route tables.
+- Public vs private subnets.
+- Private instance access with SSM instead of public SSH or bastion hosts.
+- VPC endpoints vs NAT Gateway for AWS service access.
 
 Build:
+- VPC.
+- 3 public subnets.
+- 3 private subnets.
+- Internet Gateway.
+- Regional NAT Gateway.
+- Public route table.
+- Private route tables.
+- S3 Gateway Endpoint.
+- Interface VPC Endpoints for SSM:
+  - `ssm`
+  - `ssmmessages`
+  - `ec2messages`
+- Endpoint security group allowing HTTPS from private subnets.
+- Required tags.
 
-- Dynamic EC2 inventory.
-- Host grouping from `Role` tags.
-- Base packages.
-- Kernel modules: `overlay`, `br_netfilter`.
-- Required sysctl values.
-- Swap disabled.
-- Containerd installed and running.
-- Base Kubernetes directories.
-
-Validation:
-
+Validate:
 ```bash
+terraform -chdir=terraform/environments/dev apply
+terraform -chdir=terraform/environments/dev output
+aws ec2 describe-route-tables --filters "Name=tag:Project,Values=k8s-hardway"
+aws ec2 describe-vpc-endpoints --filters "Name=tag:Project,Values=k8s-hardway"
+```
+
+Inspect:
+- Public subnets route `0.0.0.0/0` to IGW.
+- Private subnets route `0.0.0.0/0` to NAT.
+- S3 endpoint routes are attached to private route tables.
+- SSM interface endpoints are attached to private subnets.
+- Private instances can reach SSM over HTTPS without inbound SSH.
+- Subnets are spread across AZs.
+
+Done when:
+- Networking applies and destroys cleanly.
+- Route tables match the expected design.
+- SSM endpoint plumbing exists for private EC2 access.
+- No EC2 or Kubernetes yet.
+
+## Phase 2: Build Kubernetes-Ready Base AMIs
+
+Learn:
+- Difference between normal AMI and Kubernetes-ready AMI.
+- Difference between a control-plane AMI and a worker AMI.
+- What is safe to bake.
+- What must stay dynamic.
+- Packer workflow.
+- Parallel Packer builds.
+- Packer connection through SSM Session Manager.
+- Why AMI builders should run in private subnets.
+
+Build common base into both AMIs:
+- Base packages.
+- SSM Agent installed/enabled if the base AMI does not already include it.
+- `containerd`.
+- `runc`.
+- `crictl`.
+- `kubelet`.
+- `kubectl`.
+- CNI plugins.
+- Helm.
+- Kernel modules config.
+- Sysctl defaults.
+- Swap disabled config.
+- Base directories:
+  - `/etc/kubernetes`
+  - `/etc/kubernetes/pki`
+  - `/var/lib/kubelet`
+  - `/opt/cni/bin`
+
+Build control-plane AMI with:
+- Common base.
+- `kube-apiserver`.
+- `kube-controller-manager`.
+- `kube-scheduler`.
+- `etcd`.
+- `etcdctl`.
+- `/var/lib/etcd`
+
+Build worker AMI with:
+- Common base.
+- `kube-proxy`.
+
+Do not bake:
+- Certificates.
+- Private keys.
+- Kubeconfigs.
+- AWS credentials.
+- Etcd data.
+- Node names.
+- Private IPs.
+- API server SANs.
+- Cluster tokens.
+- Runtime cluster state.
+
+Packer access model:
+- Launch temporary builders in private subnets.
+- Do not associate public IPs.
+- Use the Packer SSM communicator or SSM-backed SSH tunnel.
+- Give each builder an IAM instance profile with SSM permissions.
+- Allow outbound HTTPS to SSM endpoints, S3, package repositories, and optional registry endpoints.
+- Use NAT Gateway for public package downloads unless all dependencies are mirrored behind VPC endpoints or private registry access.
+
+Parallel build model:
+- Build `k8s-control-plane` and `k8s-worker` AMIs from the same base OS AMI.
+- Run builds in parallel when possible because they do not depend on each other.
+- Keep shared install logic identical where possible to avoid version drift.
+- Output separate AMI IDs for Terraform:
+  - `control_plane_ami_id`
+  - `worker_ami_id`
+
+Validate:
+```bash
+packer validate packer/k8s-base.pkr.hcl
+packer build packer/k8s-base.pkr.hcl
+```
+
+Optional smoke EC2 validation:
+```bash
+containerd --version
+crictl --version
+kubelet --version
+kubectl version --client
+```
+
+Done when:
+- Both AMIs build successfully.
+- No Packer builder receives a public IP.
+- Private test EC2 instances launched from both AMIs are reachable through SSM.
+- A test EC2 launched from the control-plane AMI has control-plane and etcd binaries.
+- A test EC2 launched from the worker AMI has worker/runtime binaries.
+- No secrets or cluster identity exist in either AMI.
+
+## Phase 3: Terraform Compute Layer
+
+Learn:
+- EC2 instances in private subnets.
+- IAM instance profiles.
+- Security groups.
+- Load balancers.
+- EC2 tags for Ansible inventory.
+
+Build:
+- IAM role and instance profile.
+- Security groups.
+- 3 control-plane EC2 instances using the control-plane AMI.
+- 3 worker EC2 instances using the worker AMI.
+- No public IPs on control-plane or worker instances.
+- SSM permissions attached to all node instance profiles.
+- Internal NLB for Kubernetes API.
+- Public ALB or NLB for ingress path later.
+
+Tags:
+- `Project = k8s-hardway`
+- `Environment = dev`
+- `Role = control-plane` or `worker`
+- `Name = cp-01`, `cp-02`, `cp-03`, `worker-01`, `worker-02`, `worker-03`
+
+Validate:
+```bash
+terraform -chdir=terraform/environments/dev apply
+terraform -chdir=terraform/environments/dev output
+aws ec2 describe-instances --filters "Name=tag:Project,Values=k8s-hardway"
+```
+
+Done when:
+- All six instances launch from the correct role-specific AMI.
+- Instances are private.
+- Nodes are reachable through SSM Session Manager.
+- Tags are correct.
+- Load balancer target groups attach to the right nodes.
+
+## Phase 4: Ansible Connectivity and Final Host Setup
+
+Learn:
+- Dynamic inventory.
+- Private IP access.
+- Host groups from EC2 tags.
+- Ansible over AWS SSM Session Manager.
+- Idempotent configuration.
+
+Access model:
+- Ansible connects to private EC2 instances through SSM, not public SSH.
+- No bastion host is required.
+- No inbound SSH rule is required on Kubernetes nodes.
+- Inventory still comes from EC2 tags.
+
+Ansible should verify/configure:
+- Hostname.
+- Required directories.
+- Kernel modules loaded.
+- Sysctl values.
+- Swap disabled.
+- Containerd enabled/running.
+- Binaries present.
+- Time sync.
+- Basic node prerequisites.
+
+Validate:
+```bash
+aws ssm describe-instance-information
 ansible all -i ansible/inventory/aws_ec2.yml -m ping
 ansible-playbook -i ansible/inventory/aws_ec2.yml ansible/playbooks/01-common.yml
 ```
 
 Done when:
+- All six nodes respond.
+- Ansible reaches nodes through SSM.
+- `role_control_plane` and `role_worker` groups are correct.
+- Common playbook is mostly verification/rendering, not slow installation.
+- Second Ansible run is idempotent.
 
-- All six nodes respond to Ansible ping by private IP.
-- `role_control_plane` and `role_worker` groups are populated.
-- Containerd is enabled and running on every node.
-- The common playbook is idempotent on a second run.
+## Phase 5: Certificates and Kubeconfigs
 
-## Phase 3: Kubernetes Hard-Way Core
-
-Goal: bring up etcd, the Kubernetes control plane, and workers.
+Learn:
+- Kubernetes PKI.
+- Client certs vs server certs.
+- API server SANs.
+- Kubeconfigs.
 
 Build:
-
-- Cluster CA and etcd CA.
-- API server certificate.
-- Kubelet certificates.
-- Admin, controller-manager, and scheduler certificates.
+- Cluster CA.
+- Etcd CA.
+- API server cert.
+- Etcd certs.
+- Kubelet certs.
+- Admin cert.
+- Controller-manager cert.
+- Scheduler cert.
 - Service account keys.
 - Kubeconfigs.
-- Etcd on the 3 control-plane nodes.
-- Kube-apiserver.
-- Kube-controller-manager.
-- Kube-scheduler.
+
+Keep generated files outside git.
+
+Validate:
+```bash
+openssl x509 -in ansible/generated/pki/ca.crt -noout -subject
+```
+
+Done when:
+- Certs are generated once per cluster build.
+- Correct certs are copied to correct nodes.
+- Private keys are not committed.
+
+## Phase 6: Etcd Cluster
+
+Learn:
+- Etcd quorum.
+- Peer URLs.
+- Client URLs.
+- Initial cluster string.
+- Systemd services.
+
+Ansible configures:
+- `etcd.service`.
+- Member name per control-plane node.
+- Peer/client cert paths.
+- Initial cluster using private IPs.
+- Etcd data directory.
+
+Validate:
+```bash
+etcdctl endpoint health
+etcdctl member list
+```
+
+Done when:
+- 3-member etcd cluster is healthy.
+- Each control-plane node has unique etcd identity.
+- Etcd survives service restart.
+
+## Phase 7: Kubernetes Control Plane
+
+Learn:
+- API server.
+- Controller manager.
+- Scheduler.
+- Service account signing.
+- Encryption config.
+- Audit policy.
+
+Ansible configures:
+- `kube-apiserver.service`.
+- `kube-controller-manager.service`.
+- `kube-scheduler.service`.
+- Admin kubeconfig.
+- Controller/scheduler kubeconfigs.
+- API NLB endpoint in kubeconfigs.
+
+Validate:
+```bash
+kubectl cluster-info
+kubectl get componentstatuses || true
+kubectl get --raw=/readyz
+```
+
+Done when:
+- API server is reachable through the internal NLB.
+- Controller manager and scheduler are running.
+- `kubectl` can authenticate as admin.
+
+## Phase 8: Worker Nodes
+
+Learn:
 - Kubelet.
 - Kube-proxy.
-- Local admin `kubectl` configuration.
+- Node registration.
+- CRI connection to containerd.
+- Node identity.
 
-Validation:
+Ansible configures:
+- `kubelet.service`.
+- `kubelet-config.yaml`.
+- `kube-proxy.service`.
+- `kube-proxy-config.yaml`.
+- Per-node kubeconfig.
+- Node labels if needed.
 
+Validate:
+```bash
+kubectl get nodes
+journalctl -u kubelet --no-pager
+```
+
+Done when:
+- All 6 nodes register.
+- Nodes may be `NotReady` until CNI is installed.
+- Kubelet uses containerd correctly.
+
+## Phase 9: CNI and CoreDNS
+
+Learn:
+- Pod networking.
+- Service networking.
+- DNS inside Kubernetes.
+
+Install:
+- Calico or Cilium.
+- CoreDNS.
+
+Validate:
 ```bash
 kubectl get nodes
 kubectl get pods -A
-etcdctl endpoint health
+kubectl run dns-test --image=busybox:1.36 --restart=Never -- nslookup kubernetes.default
 ```
 
 Done when:
+- Nodes are `Ready`.
+- Pods can start.
+- DNS works.
 
-- Etcd is healthy on all control-plane nodes.
-- The API server is reachable through the internal NLB.
-- All six nodes register with Kubernetes.
-- Control-plane components run under systemd.
-- Worker services run under systemd.
+## Phase 10: Ingress and App Traffic
 
-## Phase 4: Cluster Addons
-
-Goal: make the cluster usable for normal workloads.
-
-Build:
-
-- CNI: Calico or Cilium.
-- CoreDNS.
+Learn:
+- Service vs ingress.
 - Ingress controller.
-- Metrics Server.
+- ALB/NLB path.
+- Host headers.
 
-Validation:
+Install:
+- Ingress controller.
+- Smoke app.
+- App service.
+- Ingress object.
 
+Validate:
 ```bash
-kubectl get nodes
-kubectl run test --image=nginx
-kubectl expose deployment test --port=80
-kubectl top nodes
+kubectl apply -f k8s/smoke-app/
+kubectl rollout status deployment/smoke-api -n smoke
+curl -H "Host: smoke.example.local" http://<alb-dns-name>
 ```
 
 Done when:
+- Smoke app responds through ingress.
+- Public traffic reaches worker nodes through the intended load balancer path.
 
-- All nodes are `Ready`.
-- CoreDNS pods are healthy.
-- Pods can resolve Kubernetes service DNS names.
-- A basic service is reachable inside the cluster.
-- Metrics Server returns node and pod metrics.
+## Phase 11: Metrics, Logging, and Load Test
 
-## Phase 5: Observability and Load Test
-
-Goal: prove the cluster works under a realistic workload.
-
-Build:
-
+Learn:
+- Metrics Server.
 - Prometheus.
 - Grafana.
+- Loki or Alloy.
+- k6 load testing.
+
+Install:
+- Metrics Server.
+- kube-prometheus-stack.
 - Loki or Grafana Alloy.
-- k6 smoke and load tests.
-- Validation scripts.
+- k6 scripts.
 
-Validation:
-
+Validate:
 ```bash
+kubectl top nodes
+kubectl top pods -A
 ./scripts/validate-cluster.sh
 ./scripts/run-load-test.sh
 ```
 
 Done when:
+- Metrics are visible.
+- Logs are collected.
+- Smoke and load tests pass.
 
-- Smoke app deploys successfully.
-- DNS, service routing, ingress, metrics, and logs checks pass.
-- k6 smoke test passes.
-- k6 load test results are captured.
-
-## Phase 6: Move Stable Setup Into AMI
-
-Goal: reduce daily build time only after Ansible works from scratch.
-
-Move into the Packer AMI:
-
-- OS packages.
-- Containerd.
-- runc.
-- crictl.
-- Kubernetes binaries.
-- Etcd binary.
-- Kernel modules.
-- Sysctl defaults.
-- Base directories.
-- Generic systemd templates.
-
-Keep in Ansible:
-
-- Certificates.
-- Kubeconfigs.
-- Private IP configuration.
-- Etcd cluster configuration.
-- API server SANs.
-- Service CIDR.
-- Pod CIDR.
-- CNI install.
-- Ingress install.
-- Monitoring and logging install.
-- Validation.
-
-Validation:
+## Daily Workflow After AMI Exists
 
 ```bash
-make ami
 make up
-./scripts/validate-cluster.sh
+kubectl get nodes
+kubectl get pods -A
+./scripts/run-load-test.sh
 make down
 ```
 
-Done when:
-
-- AMI build succeeds.
-- A fresh cluster can be created from the AMI.
-- No secrets, keys, certs, kubeconfigs, or hardcoded node IPs are baked into the AMI.
-
-## Daily Workflow
-
-Bring the lab up:
-
-```bash
-make up
-```
-
-Expected `make up` flow:
+Expected `make up`:
 
 ```bash
 terraform -chdir=terraform/environments/dev apply -auto-approve
@@ -260,41 +475,45 @@ ansible-playbook -i ansible/inventory/aws_ec2.yml ansible/site.yml
 ./scripts/validate-cluster.sh
 ```
 
-Run checks:
+## AMI Rebuild Rule
 
-```bash
-kubectl get nodes
-kubectl get pods -A
-./scripts/run-load-test.sh
-```
+Rebuild both AMIs when these shared inputs change:
 
-Destroy the lab:
+- OS package list.
+- Containerd version.
+- Kubernetes version.
+- CNI plugin binaries.
+- Base sysctl/kernel settings.
+- Base directory layout.
 
-```bash
-make down
-```
+Rebuild only the control-plane AMI when these change:
 
-Expected `make down` flow:
+- Etcd version.
+- Control-plane binary install layout.
 
-```bash
-terraform -chdir=terraform/environments/dev destroy -auto-approve
-```
+Rebuild only the worker AMI when these change:
 
-## Milestones
+- Worker-only binary install layout.
+- Worker-only runtime prerequisites.
 
-1. `make up`, Ansible ping works, then `make down`.
-2. Containerd installed on all nodes, then `make down`.
-3. Etcd healthy on 3 control-plane nodes, then `make down`.
-4. `kubectl get nodes` shows all 6 nodes `Ready`, then `make down`.
-5. Smoke workload, ingress, and metrics pass, then `make down`.
-6. Packer AMI builds and a fresh cluster still validates.
+Do not rebuild either AMI for:
+
+- Certificates.
+- Kubeconfigs.
+- Node IPs.
+- Etcd cluster membership.
+- API server SANs.
+- CNI manifests.
+- Monitoring manifests.
+- App manifests.
 
 ## Final Acceptance Criteria
 
-- AWS networking is reproducible with Terraform.
-- Six EC2 nodes are discoverable through tags and private IPs.
-- Ansible configures Linux, containerd, Kubernetes, and addons idempotently.
-- Kubernetes control plane and workers recover from a clean rebuild.
-- S3 cache supports cached manifests, Helm charts, checksums, and optional binaries.
-- Validation and load test scripts pass.
-- Daily workflow is `make up`, test, then `make down`.
+- Terraform can create and destroy AWS infrastructure repeatedly.
+- EC2 nodes launch from the correct role-specific Kubernetes-ready AMI.
+- Ansible only applies cluster-specific setup.
+- Etcd is healthy.
+- Kubernetes nodes become Ready.
+- Smoke app works.
+- Metrics/logging/load tests pass.
+- No secrets or cluster identity are baked into either AMI.
