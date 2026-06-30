@@ -7,5 +7,5 @@ resource "aws_vpc_endpoint" "this" {
   subnet_ids          = each.value.subnet_ids
   vpc_endpoint_type   = each.value.vpc_endpoint_type
   private_dns_enabled = each.value.vpc_endpoint_type == "Interface" ? true : false
-  security_group_ids  = each.value.vpc_endpoint_type == "Interface" ? [aws_security_group.this.id] : null
+  security_group_ids  = each.value.vpc_endpoint_type == "Interface" ? [module.security_group.security_group_id] : null
 }
