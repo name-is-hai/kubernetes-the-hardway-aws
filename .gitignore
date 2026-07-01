@@ -7,3 +7,6 @@
 *.key
 *.crt
 *.kubeconfig
+
+# Packer custom variables
+packer/local.pkrvars.hcl
