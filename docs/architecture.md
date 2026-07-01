@@ -50,14 +50,14 @@ Kubernetes node security groups do not need inbound SSH for normal operation.
 base AMI
   -> temporary private control-plane builder
   -> Packer connects through SSM
-  -> install control-plane binaries and host prerequisites
+  -> install control-plane binaries and reusable runtime tools
   -> create Kubernetes-ready control-plane AMI
   -> terminate temporary control-plane builder
 
 base AMI
   -> temporary private worker builder
   -> Packer connects through SSM
-  -> install worker binaries and host prerequisites
+  -> install worker binaries and reusable runtime tools
   -> create Kubernetes-ready worker AMI
   -> terminate temporary worker builder
 ```
@@ -68,10 +68,15 @@ overlap.
 
 The control-plane AMI may contain `kube-apiserver`,
 `kube-controller-manager`, `kube-scheduler`, `etcd`, `etcdctl`, `kubelet`,
-`containerd`, and shared host prerequisites.
+`containerd`, CNI plugin binaries, Helm, and shared runtime tools.
 
 The worker AMI may contain `kubelet`, `kube-proxy`, `containerd`, CNI plugins,
-and shared host prerequisites.
+Helm, and shared runtime tools.
+
+Kernel modules, sysctl values, swap state, and Kubernetes live-node state
+directories are configured later during live-node setup. Keeping those steps
+out of Packer makes the lab closer to Kubernetes the Hard Way because the
+operator sees why each running node needs those settings.
 
 Neither AMI may contain certificates, private keys, kubeconfigs, AWS
 credentials, node names, private IPs, cluster tokens, etcd data, or any runtime

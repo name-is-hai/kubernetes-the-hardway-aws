@@ -113,14 +113,7 @@ Build common base into both AMIs:
 - `kubectl`.
 - CNI plugins.
 - Helm.
-- Kernel modules config.
-- Sysctl defaults.
-- Swap disabled config.
-- Base directories:
-  - `/etc/kubernetes`
-  - `/etc/kubernetes/pki`
-  - `/var/lib/kubelet`
-  - `/opt/cni/bin`
+- `/opt/cni/bin` populated with CNI plugin binaries.
 
 Build control-plane AMI with:
 - Common base.
@@ -129,7 +122,6 @@ Build control-plane AMI with:
 - `kube-scheduler`.
 - `etcd`.
 - `etcdctl`.
-- `/var/lib/etcd`
 
 Build worker AMI with:
 - Common base.
@@ -154,6 +146,11 @@ Packer access model:
 - Give each builder an IAM instance profile with SSM permissions.
 - Allow outbound HTTPS to SSM endpoints, S3, package repositories, and optional registry endpoints.
 - Use NAT Gateway for public package downloads unless all dependencies are mirrored behind VPC endpoints or private registry access.
+
+Learning boundary:
+- Packer bakes reusable software only.
+- Packer does not configure Kubernetes host prerequisites such as kernel modules, sysctl values, swap state, or live-node state directories.
+- Live-node setup in Phase 4 explains and applies those prerequisites so the lab stays close to Kubernetes the Hard Way.
 
 Parallel build model:
 - Build `k8s-control-plane` and `k8s-worker` AMIs from the same base OS AMI.
@@ -241,14 +238,23 @@ Access model:
 
 Ansible should verify/configure:
 - Hostname.
-- Required directories.
-- Kernel modules loaded.
-- Sysctl values.
+- Required directories:
+  - `/etc/kubernetes`
+  - `/etc/kubernetes/pki`
+  - `/var/lib/kubelet`
+  - `/var/lib/etcd` on control-plane nodes
+- Kernel modules loaded:
+  - `overlay`
+  - `br_netfilter`
+- Sysctl values:
+  - `net.bridge.bridge-nf-call-iptables = 1`
+  - `net.bridge.bridge-nf-call-ip6tables = 1`
+  - `net.ipv4.ip_forward = 1`
 - Swap disabled.
 - Containerd enabled/running.
 - Binaries present.
 - Time sync.
-- Basic node prerequisites.
+- Basic node prerequisites, with notes explaining why each is required.
 
 Validate:
 ```bash
@@ -483,8 +489,6 @@ Rebuild both AMIs when these shared inputs change:
 - Containerd version.
 - Kubernetes version.
 - CNI plugin binaries.
-- Base sysctl/kernel settings.
-- Base directory layout.
 
 Rebuild only the control-plane AMI when these change:
 
