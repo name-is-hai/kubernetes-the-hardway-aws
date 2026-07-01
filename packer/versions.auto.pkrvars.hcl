@@ -1,0 +1,16 @@
+containerd_version = "2.3.2"
+runc_version       = "1.5.0"
+crictl_version     = "1.36.0"
+
+kubernetes_version  = "1.36.2"
+cni_plugins_version = "1.9.1"
+etcd_version        = "3.6.0"
+helm_version        = "3.21.2"
+
+aws_region            = "us-east-1"
+source_ami_id         = "ami-xxxxxxxxxxxxxxxxx"
+aws_vpc_id            = "vpc-xxxxxxxxxxxxxxxxx"
+aws_subnet_id         = "subnet-xxxxxxxxxxxxxxxxx"
+aws_security_group_id = "sg-xxxxxxxxxxxxxxxxx"
+iam_instance_profile  = "xxxxxxxxxxxxxxxxx"
+builder_instance_type = "t3.small"

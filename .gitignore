@@ -9,4 +9,4 @@
 *.kubeconfig
 
 # Packer custom variables
-packer/local.pkrvars.hcl
+packer/local.auto.pkrvars.hcl
