@@ -143,7 +143,7 @@ Packer access model:
 - Launch temporary builders in private subnets.
 - Do not associate public IPs.
 - Use the Packer SSM communicator or SSM-backed SSH tunnel.
-- Give each builder an IAM instance profile with SSM permissions.
+- Give each builder the Packer builder IAM instance profile with SSM permissions.
 - Allow outbound HTTPS to SSM endpoints, S3, package repositories, and optional registry endpoints.
 - Use NAT Gateway for public package downloads unless all dependencies are mirrored behind VPC endpoints or private registry access.
 
@@ -192,7 +192,10 @@ Learn:
 - EC2 tags for Ansible inventory.
 
 Build:
-- IAM role and instance profile.
+- IAM roles and instance profiles:
+  - Packer builder role/profile.
+  - Control-plane node role/profile.
+  - Worker node role/profile.
 - Security groups.
 - 3 control-plane EC2 instances using the control-plane AMI.
 - 3 worker EC2 instances using the worker AMI.
@@ -200,6 +203,21 @@ Build:
 - SSM permissions attached to all node instance profiles.
 - Internal NLB for Kubernetes API.
 - Public ALB or NLB for ingress path later.
+
+IAM model:
+- Packer builder role is used only by temporary Packer AMI builder instances.
+- Control-plane node role is used by control-plane EC2 instances.
+- Worker node role is used by worker EC2 instances.
+- All three roles initially attach `AmazonSSMManagedInstanceCore`.
+- Add S3, ECR, CloudWatch, KMS, or private registry permissions later only to the role that needs them.
+
+Security group egress model:
+- Do not use default egress-all for control-plane or worker nodes.
+- Allow only explicit outbound paths needed by private nodes.
+- Allow TCP `443` to VPC endpoint destinations for SSM and AWS service endpoints.
+- Allow DNS to the VPC resolver, for example `10.0.0.2` in the `10.0.0.0/16` VPC.
+- Allow Kubernetes internal traffic inside the VPC, such as API server `6443`, etcd `2379-2380`, and kubelet `10250`.
+- Add TCP `443` to `0.0.0.0/0` only if nodes must reach public internet dependencies through NAT.
 
 Tags:
 - `Project = k8s-hardway`
@@ -209,15 +227,59 @@ Tags:
 
 Validate:
 ```bash
+terraform -chdir=terraform/environments/dev fmt -check -recursive
+terraform -chdir=terraform/environments/dev init
+terraform -chdir=terraform/environments/dev validate
+terraform -chdir=terraform/environments/dev plan
 terraform -chdir=terraform/environments/dev apply
 terraform -chdir=terraform/environments/dev output
+```
+
+Verify EC2 instances:
+```bash
 aws ec2 describe-instances --filters "Name=tag:Project,Values=k8s-hardway"
+
+aws ec2 describe-instances \
+  --filters "Name=tag:Project,Values=k8s-hardway" \
+  --query 'Reservations[].Instances[].{Name:Tags[?Key==`Name`]|[0].Value,Role:Tags[?Key==`Role`]|[0].Value,PrivateIp:PrivateIpAddress,PublicIp:PublicIpAddress,State:State.Name,Profile:IamInstanceProfile.Arn,ImageId:ImageId}' \
+  --output table
+```
+
+Verify SSM:
+```bash
+aws ssm describe-instance-information \
+  --query 'InstanceInformationList[].{InstanceId:InstanceId,PingStatus:PingStatus,Platform:PlatformName,Agent:AgentVersion}' \
+  --output table
+```
+
+Verify internal API NLB:
+```bash
+aws elbv2 describe-load-balancers \
+  --names internal-cp-nlb \
+  --query 'LoadBalancers[].{DNS:DNSName,Scheme:Scheme,Type:Type,State:State.Code,VpcId:VpcId}' \
+  --output table
+
+aws elbv2 describe-target-health \
+  --target-group-arn <api-target-group-arn> \
+  --output table
+```
+
+Before `kube-apiserver` is installed, NLB targets may be unhealthy. For Phase 3, verify that the three control-plane instances are registered on port `6443`.
+
+Verify no public SSH path:
+```bash
+aws ec2 describe-security-groups \
+  --filters "Name=tag:Project,Values=k8s-hardway" \
+  --query 'SecurityGroups[].{Name:GroupName,Ingress:IpPermissions}' \
+  --output json
 ```
 
 Done when:
 - All six instances launch from the correct role-specific AMI.
 - Instances are private.
 - Nodes are reachable through SSM Session Manager.
+- Control-plane nodes use the control-plane instance profile.
+- Worker nodes use the worker instance profile.
 - Tags are correct.
 - Load balancer target groups attach to the right nodes.
 

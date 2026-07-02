@@ -16,6 +16,21 @@ operator laptop
 This avoids public SSH and avoids a bastion host. Instance access is controlled
 with IAM, SSM, and security group egress instead of inbound SSH rules.
 
+## IAM Model
+
+The lab uses separate EC2 roles and instance profiles for image building and
+node runtime:
+
+- Packer builder role/profile.
+- Control-plane node role/profile.
+- Worker node role/profile.
+
+All three roles initially attach `AmazonSSMManagedInstanceCore` so private
+instances can register with SSM. Additional permissions should be added only to
+the role that needs them. For example, Packer may need S3 cache or private
+artifact read permissions, while worker nodes may later need ECR pull or
+CloudWatch log permissions.
+
 ## Network Shape
 
 ```text
@@ -43,6 +58,19 @@ Required SSM interface endpoints:
 
 The endpoint security group allows HTTPS from the private subnet CIDR ranges.
 Kubernetes node security groups do not need inbound SSH for normal operation.
+
+Cluster node security groups use tight egress. Control-plane and worker nodes
+should not keep default outbound-all rules. Start with explicit outbound rules:
+
+- TCP `443` to VPC endpoint destinations for SSM and AWS service endpoints.
+- TCP and UDP `53` to the VPC resolver, such as `10.0.0.2` for the
+  `10.0.0.0/16` VPC.
+- Kubernetes internal ports inside the VPC, including API server `6443`, etcd
+  `2379-2380`, and kubelet `10250`.
+
+If a node must reach public repositories or registries through NAT, add TCP
+`443` to `0.0.0.0/0` deliberately and remove it once dependencies are mirrored
+behind VPC endpoints, S3 cache, ECR, or a private registry.
 
 ## Packer Flow
 
