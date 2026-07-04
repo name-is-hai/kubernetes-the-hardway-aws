@@ -1,0 +1,2 @@
+- import_playbook: playbooks/00-wait-for-hosts.yml
+- import_playbook: playbooks/01-common.yml

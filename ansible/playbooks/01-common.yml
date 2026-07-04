@@ -1,0 +1,5 @@
+- name: Prepare Kubernetes directories
+  hosts: all
+  become: true
+  roles:
+    - ansible/roles/common
