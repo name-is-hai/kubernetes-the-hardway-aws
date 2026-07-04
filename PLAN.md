@@ -54,9 +54,15 @@ Learn:
 - VPC endpoints vs NAT Gateway for AWS service access.
 
 Build:
-- VPC.
-- 3 public subnets.
-- 3 private subnets.
+- VPC CIDR: `192.168.0.0/16`.
+- 3 public subnets:
+  - `192.168.1.0/24`
+  - `192.168.2.0/24`
+  - `192.168.3.0/24`
+- 3 private subnets:
+  - `192.168.10.0/24`
+  - `192.168.20.0/24`
+  - `192.168.30.0/24`
 - Internet Gateway.
 - Regional NAT Gateway.
 - Public route table.
@@ -215,7 +221,7 @@ Security group egress model:
 - Do not use default egress-all for control-plane or worker nodes.
 - Allow only explicit outbound paths needed by private nodes.
 - Allow TCP `443` to VPC endpoint destinations for SSM and AWS service endpoints.
-- Allow DNS to the VPC resolver, for example `10.0.0.2` in the `10.0.0.0/16` VPC.
+- Allow DNS to the VPC resolver, for example `192.168.0.2` in the `192.168.0.0/16` VPC.
 - Allow Kubernetes internal traffic inside the VPC, such as API server `6443`, etcd `2379-2380`, and kubelet `10250`.
 - Add TCP `443` to `0.0.0.0/0` only if nodes must reach public internet dependencies through NAT.
 
@@ -339,6 +345,13 @@ Learn:
 - Client certs vs server certs.
 - API server SANs.
 - Kubeconfigs.
+
+Cluster network values:
+- Kubernetes Service CIDR: `172.16.0.0/24`.
+- Kubernetes default service IP: `172.16.0.1`.
+- CoreDNS service IP: `172.16.0.10`.
+- Kubernetes Pod CIDR: `10.0.0.0/16`.
+- These ranges must not overlap the AWS VPC CIDR `192.168.0.0/16`.
 
 Build:
 - Cluster CA.

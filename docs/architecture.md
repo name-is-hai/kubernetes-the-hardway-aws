@@ -47,6 +47,35 @@ VPC
     - S3 gateway endpoint
 ```
 
+## CIDR Model
+
+This lab keeps AWS networking and Kubernetes virtual networking in separate
+private RFC1918 ranges:
+
+```text
+AWS VPC:             192.168.0.0/16
+Kubernetes Services: 172.16.0.0/24
+Kubernetes Pods:     10.0.0.0/16
+```
+
+Example AWS subnets:
+
+```text
+public subnets:   192.168.1.0/24, 192.168.2.0/24, 192.168.3.0/24
+private subnets:  192.168.10.0/24, 192.168.20.0/24, 192.168.30.0/24
+```
+
+Example Kubernetes virtual IPs:
+
+```text
+kubernetes.default service: 172.16.0.1
+CoreDNS service:            172.16.0.10
+Pods:                       10.0.0.0/16
+```
+
+These ranges must not overlap. AWS owns the VPC range. Kubernetes owns the
+Service and Pod ranges through kube-apiserver, kube-proxy, and the CNI.
+
 Private instances use NAT Gateway for public package downloads unless the
 dependency is available through a VPC endpoint, private registry, or S3 cache.
 
@@ -63,8 +92,8 @@ Cluster node security groups use tight egress. Control-plane and worker nodes
 should not keep default outbound-all rules. Start with explicit outbound rules:
 
 - TCP `443` to VPC endpoint destinations for SSM and AWS service endpoints.
-- TCP and UDP `53` to the VPC resolver, such as `10.0.0.2` for the
-  `10.0.0.0/16` VPC.
+- TCP and UDP `53` to the VPC resolver, such as `192.168.0.2` for the
+  `192.168.0.0/16` VPC.
 - Kubernetes internal ports inside the VPC, including API server `6443`, etcd
   `2379-2380`, and kubelet `10250`.
 
