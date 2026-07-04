@@ -67,3 +67,8 @@ output "worker_security_group" {
   description = "Security group ID attached to Kubernetes worker instances."
   value       = module.worker_security_group.security_group_id
 }
+
+output "ansible_s3_bucket_name" {
+  description = ""
+  value       = aws_s3_bucket.ansible.bucket
+}
