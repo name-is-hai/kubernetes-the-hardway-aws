@@ -50,7 +50,14 @@ for binary in "${BINARIES[@]}"; do
 done
 
 for binary in "${BINARIES[@]}"; do
-  "${binary}" --version || true
+  case "${binary}" in
+    kubectl)
+      kubectl version --client
+      ;;
+    *)
+      "${binary}" --version
+      ;;
+  esac
 done
 
 cd /
