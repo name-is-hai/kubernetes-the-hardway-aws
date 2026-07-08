@@ -1,0 +1,51 @@
+[ req ]
+prompt = no
+distinguished_name = req_distinguished_name
+{% if cert_is_ca | default(false) %}
+x509_extensions = v3_ca
+{% else %}
+req_extensions = v3_req
+{% endif %}
+
+[ req_distinguished_name ]
+CN = {{ cert_common_name }}
+{% if cert_organization is defined %}
+O = {{ cert_organization }}
+{% endif %}
+{% if cert_country is defined %}
+C = {{ cert_country }}
+{% endif %}
+{% if cert_state is defined %}
+ST = {{ cert_state }}
+{% endif %}
+{% if cert_locality is defined %}
+L = {{ cert_locality }}
+{% endif %}
+{% if cert_organizational_unit is defined %}
+OU = {{ cert_organizational_unit }}
+{% endif %}
+
+[ v3_ca ]
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
+
+[ v3_req ]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+{% if cert_extended_key_usage is defined %}
+extendedKeyUsage = {{ cert_extended_key_usage }}
+{% endif %}
+{% if (cert_dns_names | default([]) | length > 0) or
+(cert_ip_addresses | default([]) | length > 0) %}
+subjectAltName = @alt_names
+{% endif %}
+
+[ alt_names ]
+{% for dns in cert_dns_names | default([]) %}
+DNS.{{ loop.index }} = {{ dns }}
+{% endfor %}
+{% for ip in cert_ip_addresses | default([]) %}
+IP.{{ loop.index }} = {{ ip }}
+{% endfor %}

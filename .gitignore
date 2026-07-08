@@ -10,3 +10,7 @@
 
 # Packer custom variables
 packer/local.auto.pkrvars.hcl
+
+# cert genarated
+
+ansible/generated/

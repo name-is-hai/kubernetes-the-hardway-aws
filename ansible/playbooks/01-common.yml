@@ -1,5 +1,6 @@
 - name: Prepare Kubernetes directories
   hosts: all
   become: true
+  any_errors_fatal: true
   roles:
-    - ansible/roles/common
+    - common

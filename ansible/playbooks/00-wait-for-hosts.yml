@@ -1,16 +1,23 @@
-- name: Verify and Wait for 6 SSM Nodes
-  hosts: all
+- name: Verify 6 SSM-managed nodes were discovered
+  hosts: localhost
+  connection: local
   gather_facts: false
+  become: false
 
   tasks:
     - name: Ensure exactly 6 nodes were discovered by the tag filter
       assert:
         that:
-          - ansible_play_hosts | length == 6
-        fail_msg: "Safety Abort! Expected 6 nodes, but found {{ ansible_play_hosts | length }}."
-        success_msg: "Exactly 6 tagged nodes found in inventory. Checking connection health..."
-      run_once: true
+          - groups.get('all', []) | length == 6
+        fail_msg: "Safety Abort! Expected 6 nodes, but found {{ groups.get('all', []) | length }}."
+        success_msg: "Exactly 6 tagged nodes found in inventory. Checking SSM connection health..."
 
+- name: Wait for 6 SSM Nodes
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+
+  tasks:
     - name: Wait for SSM agent to register and connect
       wait_for_connection:
 

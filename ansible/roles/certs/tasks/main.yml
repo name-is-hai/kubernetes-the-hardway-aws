@@ -1,0 +1,541 @@
+- name: Create local PKI directory
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - "{{ pki_dir }}"
+    - "{{ kubeconfig_dir }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Render cluster CA OpenSSL config
+  template:
+    src: openssl.cnf.j2
+    dest: "{{ pki_dir }}/ca-openssl.cnf"
+    mode: "0600"
+  vars:
+    cert_is_ca: true
+    cert_common_name: kubernetes-ca
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Render etcd CA OpenSSL config
+  template:
+    src: openssl.cnf.j2
+    dest: "{{ pki_dir }}/etcd-ca-openssl.cnf"
+    mode: "0600"
+  vars:
+    cert_is_ca: true
+    cert_common_name: etcd-ca
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate cluster CA private key
+  command:
+    cmd: openssl genrsa -out "{{ pki_dir }}/ca.key" 4096
+    creates: "{{ pki_dir }}/ca.key"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate cluster CA certificate
+  command:
+    cmd: >
+      openssl req -x509 -new -nodes
+      -key "{{ pki_dir }}/ca.key"
+      -days 3650
+      -out "{{ pki_dir }}/ca.crt"
+      -config "{{ pki_dir }}/ca-openssl.cnf"
+  args:
+    creates: "{{ pki_dir }}/ca.crt"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate etcd CA private key
+  ansible.builtin.command:
+    cmd: openssl genrsa -out "{{ pki_dir }}/etcd-ca.key" 4096
+    creates: "{{ pki_dir }}/etcd-ca.key"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate etcd CA certificate
+  ansible.builtin.command:
+    cmd: >
+      openssl req -x509 -new -nodes
+      -key "{{ pki_dir }}/etcd-ca.key"
+      -days 3650
+      -out "{{ pki_dir }}/etcd-ca.crt"
+      -config "{{ pki_dir }}/etcd-ca-openssl.cnf"
+  args:
+    creates: "{{ pki_dir }}/etcd-ca.crt"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Render admin client OpenSSL config
+  template:
+    src: openssl.cnf.j2
+    dest: "{{ pki_dir }}/admin-openssl.cnf"
+    mode: "0600"
+  vars:
+    cert_common_name: admin
+    cert_organization: system:masters
+    cert_extended_key_usage: clientAuth
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate admin private key
+  command:
+    cmd: openssl genrsa -out "{{ pki_dir }}/admin.key" 4096
+    creates: "{{ pki_dir }}/admin.key"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate admin CSR
+  command:
+    cmd: >
+      openssl req -new
+      -key "{{ pki_dir }}/admin.key"
+      -out "{{ pki_dir }}/admin.csr"
+      -config "{{ pki_dir }}/admin-openssl.cnf"
+    creates: "{{ pki_dir }}/admin.csr"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Sign admin certificate
+  command:
+    cmd: >
+      openssl x509 -req
+      -in "{{ pki_dir }}/admin.csr"
+      -CA "{{ pki_dir }}/ca.crt"
+      -CAkey "{{ pki_dir }}/ca.key"
+      -CAcreateserial
+      -out "{{ pki_dir }}/admin.crt"
+      -days 3650
+      -extensions v3_req
+      -extfile "{{ pki_dir }}/admin-openssl.cnf"
+    creates: "{{ pki_dir }}/admin.crt"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Define Kubernetes client certificates
+  set_fact:
+    kubernetes_client_certs:
+      - name: kube-controller-manager
+        common_name: system:kube-controller-manager
+      - name: kube-scheduler
+        common_name: system:kube-scheduler
+      - name: kube-proxy
+        common_name: system:kube-proxy
+  run_once: true
+
+- name: Render Kubernetes client OpenSSL configs
+  template:
+    src: openssl.cnf.j2
+    dest: "{{ pki_dir }}/{{ item.name }}-openssl.cnf"
+    mode: "0600"
+  vars:
+    cert_common_name: "{{ item.common_name }}"
+    cert_extended_key_usage: clientAuth
+  loop: "{{ kubernetes_client_certs }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate Kubernetes client private keys
+  command:
+    cmd: openssl genrsa -out "{{ pki_dir }}/{{ item.name }}.key" 4096
+    creates: "{{ pki_dir }}/{{ item.name }}.key"
+  loop: "{{ kubernetes_client_certs }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate Kubernetes client CSRs
+  command:
+    cmd: >
+      openssl req -new
+      -key "{{ pki_dir }}/{{ item.name }}.key"
+      -out "{{ pki_dir }}/{{ item.name }}.csr"
+      -config "{{ pki_dir }}/{{ item.name }}-openssl.cnf"
+    creates: "{{ pki_dir }}/{{ item.name }}.csr"
+  loop: "{{ kubernetes_client_certs }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Sign Kubernetes client certificates
+  command:
+    cmd: >
+      openssl x509 -req
+      -in "{{ pki_dir }}/{{ item.name }}.csr"
+      -CA "{{ pki_dir }}/ca.crt"
+      -CAkey "{{ pki_dir }}/ca.key"
+      -CAcreateserial
+      -out "{{ pki_dir }}/{{ item.name }}.crt"
+      -days 3650
+      -extensions v3_req
+      -extfile "{{ pki_dir }}/{{ item.name }}-openssl.cnf"
+    creates: "{{ pki_dir }}/{{ item.name }}.crt"
+  loop: "{{ kubernetes_client_certs }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Build API server certificate SAN lists
+  set_fact:
+    apiserver_dns_names:
+      - kubernetes
+      - kubernetes.default
+      - kubernetes.default.svc
+      - kubernetes.default.svc.cluster.local
+      - "{{ api_nlb_dns_name }}"
+    apiserver_ip_addresses: >-
+      {{
+        [kubernetes_service_ip, '127.0.0.1']
+        + (groups['role_control_plane']
+          | map('extract', hostvars, 'private_ip_address')
+          | list)
+      }}
+  run_once: true
+
+- name: Render kube-apiserver OpenSSL config
+  template:
+    src: openssl.cnf.j2
+    dest: "{{ pki_dir }}/kube-apiserver-openssl.cnf"
+    mode: "0600"
+  vars:
+    cert_common_name: kube-apiserver
+    cert_extended_key_usage: serverAuth
+    cert_dns_names: "{{ apiserver_dns_names }}"
+    cert_ip_addresses: "{{ apiserver_ip_addresses }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate kube-apiserver private key
+  command:
+    cmd: openssl genrsa -out "{{ pki_dir }}/kube-apiserver.key" 4096
+    creates: "{{ pki_dir }}/kube-apiserver.key"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate kube-apiserver CSR
+  command:
+    cmd: >
+      openssl req -new
+      -key "{{ pki_dir }}/kube-apiserver.key"
+      -out "{{ pki_dir }}/kube-apiserver.csr"
+      -config "{{ pki_dir }}/kube-apiserver-openssl.cnf"
+    creates: "{{ pki_dir }}/kube-apiserver.csr"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Sign kube-apiserver certificate
+  command:
+    cmd: >
+      openssl x509 -req
+      -in "{{ pki_dir }}/kube-apiserver.csr"
+      -CA "{{ pki_dir }}/ca.crt"
+      -CAkey "{{ pki_dir }}/ca.key"
+      -CAcreateserial
+      -out "{{ pki_dir }}/kube-apiserver.crt"
+      -days 3650
+      -extensions v3_req
+      -extfile "{{ pki_dir }}/kube-apiserver-openssl.cnf"
+    creates: "{{ pki_dir }}/kube-apiserver.crt"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate service account private key
+  command:
+    cmd: openssl genrsa -out "{{ pki_dir }}/service-account.key" 4096
+    creates: "{{ pki_dir }}/service-account.key"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate service account public key
+  command:
+    cmd: openssl rsa
+      -in "{{ pki_dir }}/service-account.key"
+      -pubout
+      -out "{{ pki_dir }}/service-account.pub"
+    creates: "{{ pki_dir }}/service-account.pub"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Render etcd OpenSSL configs
+  template:
+    src: openssl.cnf.j2
+    dest: "{{ pki_dir }}/etcd-{{ item }}-openssl.cnf"
+    mode: "0600"
+  vars:
+    cert_common_name: "{{ item }}"
+    cert_extended_key_usage: "serverAuth, clientAuth"
+    cert_dns_names:
+      - "{{ item }}"
+      - "{{ hostvars[item].private_dns_name }}"
+    cert_ip_addresses:
+      - "{{ hostvars[item].private_ip_address }}"
+      - "127.0.0.1"
+  loop: "{{ groups['role_control_plane'] }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate etcd private keys
+  command:
+    cmd: openssl genrsa -out "{{ pki_dir }}/etcd-{{ item }}.key" 4096
+    creates: "{{ pki_dir }}/etcd-{{ item }}.key"
+  loop: "{{ groups['role_control_plane'] }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate etcd CSRs
+  command:
+    cmd: >
+      openssl req -new
+      -key "{{ pki_dir }}/etcd-{{ item }}.key"
+      -out "{{ pki_dir }}/etcd-{{ item }}.csr"
+      -config "{{ pki_dir }}/etcd-{{ item }}-openssl.cnf"
+    creates: "{{ pki_dir }}/etcd-{{ item }}.csr"
+  loop: "{{ groups['role_control_plane'] }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Sign etcd certificates
+  command:
+    cmd: >
+      openssl x509 -req
+      -in "{{ pki_dir }}/etcd-{{ item }}.csr"
+      -CA "{{ pki_dir }}/etcd-ca.crt"
+      -CAkey "{{ pki_dir }}/etcd-ca.key"
+      -CAcreateserial
+      -out "{{ pki_dir }}/etcd-{{ item }}.crt"
+      -days 3650
+      -extensions v3_req
+      -extfile "{{ pki_dir }}/etcd-{{ item }}-openssl.cnf"
+    creates: "{{ pki_dir }}/etcd-{{ item }}.crt"
+  loop: "{{ groups['role_control_plane'] }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Render kubelet OpenSSL configs
+  template:
+    src: openssl.cnf.j2
+    dest: "{{ pki_dir }}/{{ item }}-openssl.cnf"
+    mode: "0600"
+  vars:
+    cert_common_name: "system:node:{{ item }}"
+    cert_organization: system:nodes
+    cert_extended_key_usage: "serverAuth, clientAuth"
+    cert_dns_names:
+      - "{{ item }}"
+      - "{{ hostvars[item].private_dns_name }}"
+    cert_ip_addresses:
+      - "{{ hostvars[item].private_ip_address }}"
+      - "127.0.0.1"
+  loop: "{{ groups['role_worker'] }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate kubelet private keys
+  command:
+    cmd: openssl genrsa -out "{{ pki_dir }}/{{ item }}.key" 4096
+    creates: "{{ pki_dir }}/{{ item }}.key"
+  loop: "{{ groups['role_worker'] }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate kubelet CSRs
+  command:
+    cmd: >
+      openssl req -new
+      -key "{{ pki_dir }}/{{ item }}.key"
+      -out "{{ pki_dir }}/{{ item }}.csr"
+      -config "{{ pki_dir }}/{{ item }}-openssl.cnf"
+    creates: "{{ pki_dir }}/{{ item }}.csr"
+  loop: "{{ groups['role_worker'] }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Sign kubelet certificates
+  command:
+    cmd: >
+      openssl x509 -req
+      -in "{{ pki_dir }}/{{ item }}.csr"
+      -CA "{{ pki_dir }}/ca.crt"
+      -CAkey "{{ pki_dir }}/ca.key"
+      -CAcreateserial
+      -out "{{ pki_dir }}/{{ item }}.crt"
+      -days 3650
+      -extensions v3_req
+      -extfile "{{ pki_dir }}/{{ item }}-openssl.cnf"
+    creates: "{{ pki_dir }}/{{ item }}.crt"
+  loop: "{{ groups['role_worker'] }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate admin kubeconfig
+  command:
+    cmd: >
+      kubectl config set-cluster {{ cluster_name }}
+      --certificate-authority={{ pki_dir }}/ca.crt
+      --embed-certs=true
+      --server=https://{{ api_nlb_dns_name }}:6443
+      --kubeconfig={{ kubeconfig_dir }}/admin.kubeconfig
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Set admin credentials
+  command:
+    cmd: >
+      kubectl config set-credentials admin
+      --client-certificate={{ pki_dir }}/admin.crt
+      --client-key={{ pki_dir }}/admin.key
+      --embed-certs=true
+      --kubeconfig={{ kubeconfig_dir }}/admin.kubeconfig
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Set admin context
+  command:
+    cmd: >
+      kubectl config set-context default
+      --cluster={{ cluster_name }}
+      --user=admin
+      --kubeconfig={{ kubeconfig_dir }}/admin.kubeconfig
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Use admin context
+  command:
+    cmd: kubectl config use-context default --kubeconfig={{ kubeconfig_dir }}/admin.kubeconfig
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Define kubeconfigs
+  set_fact:
+    kubeconfigs:
+      - kube-controller-manager
+      - kube-scheduler
+      - kube-proxy
+  run_once: true
+
+- name: Generate kube kubeconfig
+  command:
+    cmd: >
+      kubectl config set-cluster {{ cluster_name }}
+      --certificate-authority={{ pki_dir }}/ca.crt
+      --embed-certs=true
+      --server=https://{{ api_nlb_dns_name }}:6443
+      --kubeconfig={{ kubeconfig_dir }}/{{ item }}.kubeconfig
+  delegate_to: localhost
+  loop: "{{ kubeconfigs }}"
+  run_once: true
+  become: false
+
+- name: Set kube credentials
+  command:
+    cmd: >
+      kubectl config set-credentials {{ item }}
+      --client-certificate={{ pki_dir }}/{{ item }}.crt
+      --client-key={{ pki_dir }}/{{ item }}.key
+      --embed-certs=true
+      --kubeconfig={{ kubeconfig_dir }}/{{ item }}.kubeconfig
+  delegate_to: localhost
+  loop: "{{ kubeconfigs }}"
+  run_once: true
+  become: false
+
+- name: Set kube context
+  command:
+    cmd: >
+      kubectl config set-context default
+      --cluster={{ cluster_name }}
+      --user={{ item }}
+      --kubeconfig={{ kubeconfig_dir }}/{{ item }}.kubeconfig
+  delegate_to: localhost
+  loop: "{{ kubeconfigs }}"
+  run_once: true
+  become: false
+
+- name: Use kube context
+  command:
+    cmd: kubectl config use-context default --kubeconfig={{ kubeconfig_dir }}/{{ item }}.kubeconfig
+  delegate_to: localhost
+  loop: "{{ kubeconfigs }}"
+  run_once: true
+  become: false
+
+- name: Generate worker kubeconfig
+  command:
+    cmd: >
+      kubectl config set-cluster {{ cluster_name }}
+      --certificate-authority={{ pki_dir }}/ca.crt
+      --embed-certs=true
+      --server=https://{{ api_nlb_dns_name }}:6443
+      --kubeconfig={{ kubeconfig_dir }}/{{ item }}.kubeconfig
+  delegate_to: localhost
+  loop: "{{ groups['role_worker'] }}"
+  run_once: true
+  become: false
+
+- name: Set worker credentials
+  command:
+    cmd: >
+      kubectl config set-credentials {{ item }}
+      --client-certificate={{ pki_dir }}/{{ item }}.crt
+      --client-key={{ pki_dir }}/{{ item }}.key
+      --embed-certs=true
+      --kubeconfig={{ kubeconfig_dir }}/{{ item }}.kubeconfig
+  delegate_to: localhost
+  loop: "{{ groups['role_worker'] }}"
+  run_once: true
+  become: false
+
+- name: Set woker context
+  command:
+    cmd: >
+      kubectl config set-context default
+      --cluster={{ cluster_name }}
+      --user={{ item }}
+      --kubeconfig={{ kubeconfig_dir }}/{{ item }}.kubeconfig
+  delegate_to: localhost
+  loop: "{{ groups['role_worker'] }}"
+  run_once: true
+  become: false
+
+- name: Use worker context
+  command:
+    cmd: kubectl config use-context default --kubeconfig={{ kubeconfig_dir }}/{{ item }}.kubeconfig
+  delegate_to: localhost
+  loop: "{{ groups['role_worker'] }}"
+  run_once: true
+  become: false
