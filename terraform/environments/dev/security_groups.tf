@@ -37,6 +37,11 @@ module "control_plane_security_group" {
       port     = 53
       cidr     = "${cidrhost(module.vpc.vpc_cidr_block, 2)}/32"
     },
+    {
+      protocol = "tcp"
+      port     = 6443
+      cidr     = module.vpc.vpc_cidr_block
+    },
   ]
 
   sg_ingress_rules = [
