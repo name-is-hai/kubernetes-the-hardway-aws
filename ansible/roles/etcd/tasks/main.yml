@@ -1,3 +1,14 @@
+- name: Create etcd directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/etcd
+    - /var/lib/etcd
+
 - name: Copy Certificate to etcd
   copy:
     src: "{{ pki_dir }}/etcd-ca.crt"

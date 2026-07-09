@@ -1,27 +1,3 @@
-- name: Create Kubernetes directories
-  file:
-    path: "{{ item }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  loop:
-    - /etc/kubernetes
-    - /etc/kubernetes/pki
-    - /var/lib/kubelet
-
-- name: Create etcd directory on control-plane nodes
-  file:
-    path: "{{ item }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  loop:
-    - /var/lib/etcd
-    - /etc/etcd
-  when: "'role_control_plane' in group_names"
-
 - name: Load required kernel modules
   modprobe:
     name: "{{ item }}"
