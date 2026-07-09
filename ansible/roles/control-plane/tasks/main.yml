@@ -1,0 +1,144 @@
+- name: Create Kubernetes control-plane directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/kubernetes
+    - /etc/kubernetes/pki
+    - /etc/kubernetes/config
+    - /var/lib/kubernetes
+
+- name: Copy Kubernetes CA certificate
+  copy:
+    src: "{{ pki_dir }}/ca.crt"
+    dest: /etc/kubernetes/pki/ca.crt
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Copy Kubernetes CA private key
+  copy:
+    src: "{{ pki_dir }}/ca.key"
+    dest: /etc/kubernetes/pki/ca.key
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Copy kube-apiserver certificate
+  copy:
+    src: "{{ pki_dir }}/kube-apiserver.crt"
+    dest: /etc/kubernetes/pki/kube-apiserver.crt
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Copy kube-apiserver private key
+  copy:
+    src: "{{ pki_dir }}/kube-apiserver.key"
+    dest: /etc/kubernetes/pki/kube-apiserver.key
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Copy service account private key
+  copy:
+    src: "{{ pki_dir }}/service-account.key"
+    dest: /etc/kubernetes/pki/service-account.key
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Copy service account public key
+  copy:
+    src: "{{ pki_dir }}/service-account.pub"
+    dest: /etc/kubernetes/pki/service-account.pub
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Copy controller-manager kubeconfig
+  copy:
+    src: "{{ kubeconfig_dir }}/kube-controller-manager.kubeconfig"
+    dest: /etc/kubernetes/kube-controller-manager.kubeconfig
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Copy scheduler kubeconfig
+  copy:
+    src: "{{ kubeconfig_dir }}/kube-scheduler.kubeconfig"
+    dest: /etc/kubernetes/kube-scheduler.kubeconfig
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Copy admin kubeconfig
+  copy:
+    src: "{{ kubeconfig_dir }}/admin.kubeconfig"
+    dest: /etc/kubernetes/admin.kubeconfig
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Render encryption config
+  template:
+    src: "{{ playbook_dir }}/../templates/encryption-config.yaml.j2"
+    dest: /var/lib/kubernetes/encryption-config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Create Kubernetes log directory
+  file:
+    path: /var/log/kubernetes
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render kube-apiserver systemd service
+  template:
+    src: kube-apiserver.service.j2
+    dest: /etc/systemd/system/kube-apiserver.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kube-apiserver
+
+- name: Render kube-controller-manager systemd service
+  template:
+    src: kube-controller-manager.service.j2
+    dest: /etc/systemd/system/kube-controller-manager.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kube-controller-manager
+
+- name: Render kube-scheduler systemd service
+  template:
+    src: kube-scheduler.service.j2
+    dest: /etc/systemd/system/kube-scheduler.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kube-scheduler
+
+- name: Restart kube-scheduler
+  systemd:
+    name: kube-scheduler
+    state: restarted
+    daemon_reload: true
+
+- name: Enable and start Kubernetes control-plane services
+  systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - kube-apiserver
+    - kube-controller-manager
+    - kube-scheduler

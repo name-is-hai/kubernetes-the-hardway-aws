@@ -216,7 +216,7 @@
     mode: "0600"
   vars:
     cert_common_name: kube-apiserver
-    cert_extended_key_usage: serverAuth
+    cert_extended_key_usage: "serverAuth, clientAuth"
     cert_dns_names: "{{ apiserver_dns_names }}"
     cert_ip_addresses: "{{ apiserver_ip_addresses }}"
   delegate_to: localhost

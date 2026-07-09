@@ -1,0 +1,45 @@
+[Unit]
+Description=Kubernetes API Server
+Documentation=https://kubernetes.io/docs/
+After=network-online.target etcd.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/kube-apiserver \
+  --advertise-address={{ private_ip_address }} \
+  --allow-privileged=true \
+  --apiserver-count={{ groups['role_control_plane'] | length }} \
+  --audit-log-maxage=30 \
+  --audit-log-maxbackup=3 \
+  --audit-log-maxsize=100 \
+  --audit-log-path=/var/log/kubernetes/audit.log \
+  --authorization-mode=Node,RBAC \
+  --bind-address=0.0.0.0 \
+  --client-ca-file=/etc/kubernetes/pki/ca.crt \
+  --enable-admission-plugins=NodeRestriction \
+  --enable-bootstrap-token-auth=true \
+  --etcd-cafile=/etc/etcd/etcd-ca.crt \
+  --etcd-certfile=/etc/etcd/etcd.crt \
+  --etcd-keyfile=/etc/etcd/etcd.key \
+  --etcd-servers={% for host in groups['role_control_plane'] %}https://{{ hostvars[host].private_ip_address }}:2379{% if not loop.last %},{% endif %}{% endfor %} \
+  --event-ttl=1h \
+  --encryption-provider-config=/var/lib/kubernetes/encryption-config.yaml \
+  --kubelet-certificate-authority=/etc/kubernetes/pki/ca.crt \
+  --kubelet-client-certificate=/etc/kubernetes/pki/kube-apiserver.crt \
+  --kubelet-client-key=/etc/kubernetes/pki/kube-apiserver.key \
+  --runtime-config=api/all=true \
+  --secure-port=6443 \
+  --service-account-issuer=https://kubernetes.default.svc.cluster.local \
+  --service-account-key-file=/etc/kubernetes/pki/service-account.pub \
+  --service-account-signing-key-file=/etc/kubernetes/pki/service-account.key \
+  --service-cluster-ip-range={{ kubernetes_service_cidr }} \
+  --service-node-port-range=30000-32767 \
+  --tls-cert-file=/etc/kubernetes/pki/kube-apiserver.crt \
+  --tls-private-key-file=/etc/kubernetes/pki/kube-apiserver.key \
+  --v=2
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
