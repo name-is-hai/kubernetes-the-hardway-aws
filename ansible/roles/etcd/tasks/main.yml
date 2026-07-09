@@ -1,0 +1,40 @@
+- name: Copy Certificate to etcd
+  copy:
+    src: "{{ pki_dir }}/etcd-ca.crt"
+    dest: "/etc/etcd/etcd-ca.crt"
+    mode: "0644"
+    owner: root
+    group: root
+
+- name: Copy Certificate to controler plane etcd
+  copy:
+    src: "{{ pki_dir }}/etcd-{{ inventory_hostname }}.crt"
+    dest: "/etc/etcd/etcd.crt"
+    mode: "0644"
+    owner: root
+    group: root
+
+- name: Copy key to controler plane etcd
+  copy:
+    src: "{{ pki_dir }}/etcd-{{ inventory_hostname }}.key"
+    dest: "/etc/etcd/etcd.key"
+    mode: "0600"
+    owner: root
+    group: root
+
+- name: Render etcd systemd service
+  template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+    mode: "0644"
+    owner: root
+    group: root
+  notify:
+    - Reload systemd
+    - Restart etcd
+
+- name: Enable and start etcd
+  systemd:
+    name: etcd
+    enabled: true
+    state: started

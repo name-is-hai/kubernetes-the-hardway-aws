@@ -1,0 +1,30 @@
+[Unit]
+Description=etcd
+Documentation=https://github.com/etcd-io/etcd
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/etcd \
+  --name={{ inventory_hostname }} \
+  --data-dir=/var/lib/etcd \
+  --listen-client-urls=https://{{ private_ip_address }}:2379,https://127.0.0.1:2379 \
+  --advertise-client-urls=https://{{ private_ip_address }}:2379 \
+  --listen-peer-urls=https://{{ private_ip_address }}:2380 \
+  --initial-advertise-peer-urls=https://{{ private_ip_address }}:2380 \
+  --initial-cluster={% for host in groups['role_control_plane'] %}{{ host }}=https://{{ hostvars[host].private_ip_address }}:2380{% if not loop.last %},{% endif %}{% endfor %} \
+  --initial-cluster-token=etcd-cluster-0 \
+  --initial-cluster-state=new \
+  --client-cert-auth \
+  --trusted-ca-file=/etc/etcd/etcd-ca.crt \
+  --cert-file=/etc/etcd/etcd.crt \
+  --key-file=/etc/etcd/etcd.key \
+  --peer-client-cert-auth \
+  --peer-trusted-ca-file=/etc/etcd/etcd-ca.crt \
+  --peer-cert-file=/etc/etcd/etcd.crt \
+  --peer-key-file=/etc/etcd/etcd.key
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
