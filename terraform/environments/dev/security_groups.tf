@@ -52,7 +52,16 @@ module "control_plane_security_group" {
     },
   ]
 }
+
 resource "aws_vpc_security_group_ingress_rule" "etcd_from_control_plane" {
+  security_group_id            = module.control_plane_security_group.security_group_id
+  referenced_security_group_id = module.control_plane_security_group.security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 2379
+  to_port                      = 2380
+}
+
+resource "aws_vpc_security_group_egress_rule" "etcd_from_control_plane" {
   security_group_id            = module.control_plane_security_group.security_group_id
   referenced_security_group_id = module.control_plane_security_group.security_group_id
   ip_protocol                  = "tcp"
