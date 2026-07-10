@@ -1,0 +1,97 @@
+- name: Create Kubernetes worker directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/kubernetes
+    - /etc/kubernetes/pki
+    - /var/lib/kubelet
+    - /var/lib/kube-proxy
+
+- name: Copy Kubernetes CA certificate
+  copy:
+    src: "{{ pki_dir }}/ca.crt"
+    dest: /etc/kubernetes/pki/ca.crt
+    owner: root
+    group: root
+    mode: "0644"
+- name: Copy kubelet client certificate
+  copy:
+    src: "{{ pki_dir }}/{{ inventory_hostname }}.crt"
+    dest: /var/lib/kubelet/{{ inventory_hostname }}.crt
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Copy kubelet client private key
+  copy:
+    src: "{{ pki_dir }}/{{ inventory_hostname }}.key"
+    dest: /var/lib/kubelet/{{ inventory_hostname }}.key
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Copy kubelet kubeconfig
+  copy:
+    src: "{{ kubeconfig_dir }}/{{ inventory_hostname }}.kubeconfig"
+    dest: /var/lib/kubelet/kubeconfig
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Copy kube-proxy kubeconfig
+  copy:
+    src: "{{ kubeconfig_dir }}/kube-proxy.kubeconfig"
+    dest: /var/lib/kube-proxy/kubeconfig
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Render kubelet config
+  template:
+    src: kubelet-config.yaml.j2
+    dest: /var/lib/kubelet/kubelet-config.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kubelet
+
+- name: Render kubelet systemd service
+  template:
+    src: kubelet.service.j2
+    dest: /etc/systemd/system/kubelet.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kubelet
+
+- name: Render kube-proxy config
+  template:
+    src: kube-proxy-config.yaml.j2
+    dest: /var/lib/kube-proxy/kube-proxy-config.yaml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kube-proxy
+
+- name: Render kube-proxy systemd service
+  template:
+    src: kube-proxy.service.j2
+    dest: /etc/systemd/system/kube-proxy.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kube-proxy
+
+- name: Enable and start Kubernetes worker services
+  systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - kubelet
+    - kube-proxy
