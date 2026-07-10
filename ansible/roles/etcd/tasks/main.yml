@@ -9,29 +9,32 @@
     - /etc/etcd
     - /var/lib/etcd
 
-- name: Copy Certificate to etcd
+- name: Copy etcd CA certificate
   copy:
     src: "{{ pki_dir }}/etcd-ca.crt"
     dest: "/etc/etcd/etcd-ca.crt"
     mode: "0644"
     owner: root
     group: root
+  notify: Restart etcd
 
-- name: Copy Certificate to controler plane etcd
+- name: Copy control-plane etcd certificate
   copy:
     src: "{{ pki_dir }}/etcd-{{ inventory_hostname }}.crt"
     dest: "/etc/etcd/etcd.crt"
     mode: "0644"
     owner: root
     group: root
+  notify: Restart etcd
 
-- name: Copy key to controler plane etcd
+- name: Copy control-plane etcd private key
   copy:
     src: "{{ pki_dir }}/etcd-{{ inventory_hostname }}.key"
     dest: "/etc/etcd/etcd.key"
     mode: "0600"
     owner: root
     group: root
+  notify: Restart etcd
 
 - name: Render etcd systemd service
   template:
@@ -44,8 +47,12 @@
     - Reload systemd
     - Restart etcd
 
+- name: Apply pending etcd restarts
+  meta: flush_handlers
+
 - name: Enable and start etcd
   systemd:
     name: etcd
     enabled: true
     state: started
+    daemon_reload: true

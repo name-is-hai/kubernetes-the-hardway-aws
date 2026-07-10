@@ -1,4 +1,4 @@
-- name: Prepare Kubernetes directories
+- name: Prepare Kubernetes host
   hosts: all
   become: true
   any_errors_fatal: true

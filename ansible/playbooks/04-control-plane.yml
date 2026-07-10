@@ -2,6 +2,7 @@
   hosts: role_control_plane
   gather_facts: false
   become: true
+  any_errors_fatal: true
   vars:
     generated_dir: "{{ playbook_dir }}/../generated"
     pki_dir: "{{ generated_dir }}/pki"

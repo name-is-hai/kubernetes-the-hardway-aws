@@ -34,6 +34,7 @@
     owner: root
     group: root
     mode: "0644"
+  notify: Restart kube-apiserver
 
 - name: Copy kube-apiserver private key
   copy:
@@ -42,6 +43,7 @@
     owner: root
     group: root
     mode: "0600"
+  notify: Restart kube-apiserver
 
 - name: Copy service account private key
   copy:
@@ -58,6 +60,24 @@
     owner: root
     group: root
     mode: "0644"
+
+- name: Copy apiserver etcd client certificate
+  copy:
+    src: "{{ pki_dir }}/apiserver-etcd-client.crt"
+    dest: /etc/kubernetes/pki/apiserver-etcd-client.crt
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kube-apiserver
+
+- name: Copy apiserver etcd client private key
+  copy:
+    src: "{{ pki_dir }}/apiserver-etcd-client.key"
+    dest: /etc/kubernetes/pki/apiserver-etcd-client.key
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart kube-apiserver
 
 - name: Copy controller-manager kubeconfig
   copy:
@@ -126,11 +146,8 @@
     mode: "0644"
   notify: Restart kube-scheduler
 
-- name: Restart kube-scheduler
-  systemd:
-    name: kube-scheduler
-    state: restarted
-    daemon_reload: true
+- name: Apply pending control-plane restarts
+  meta: flush_handlers
 
 - name: Enable and start Kubernetes control-plane services
   systemd:

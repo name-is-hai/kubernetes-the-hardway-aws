@@ -279,6 +279,55 @@
   run_once: true
   become: false
 
+- name: Render apiserver etcd client OpenSSL config
+  template:
+    src: openssl.cnf.j2
+    dest: "{{ pki_dir }}/apiserver-etcd-client-openssl.cnf"
+    mode: "0600"
+  vars:
+    cert_common_name: kube-apiserver-etcd-client
+    cert_extended_key_usage: clientAuth
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate apiserver etcd client private key
+  command:
+    cmd: openssl genrsa -out "{{ pki_dir }}/apiserver-etcd-client.key" 4096
+    creates: "{{ pki_dir }}/apiserver-etcd-client.key"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Generate apiserver etcd client CSR
+  command:
+    cmd: >
+      openssl req -new
+      -key "{{ pki_dir }}/apiserver-etcd-client.key"
+      -out "{{ pki_dir }}/apiserver-etcd-client.csr"
+      -config "{{ pki_dir }}/apiserver-etcd-client-openssl.cnf"
+    creates: "{{ pki_dir }}/apiserver-etcd-client.csr"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Sign apiserver etcd client certificate
+  command:
+    cmd: >
+      openssl x509 -req
+      -in "{{ pki_dir }}/apiserver-etcd-client.csr"
+      -CA "{{ pki_dir }}/etcd-ca.crt"
+      -CAkey "{{ pki_dir }}/etcd-ca.key"
+      -CAcreateserial
+      -out "{{ pki_dir }}/apiserver-etcd-client.crt"
+      -days 3650
+      -extensions v3_req
+      -extfile "{{ pki_dir }}/apiserver-etcd-client-openssl.cnf"
+    creates: "{{ pki_dir }}/apiserver-etcd-client.crt"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
 - name: Render etcd OpenSSL configs
   template:
     src: openssl.cnf.j2
