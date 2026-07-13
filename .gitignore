@@ -14,3 +14,4 @@ packer/local.auto.pkrvars.hcl
 # cert genarated
 
 ansible/generated/
+.ansible_cache/

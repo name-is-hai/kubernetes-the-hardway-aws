@@ -1,4 +1,9 @@
 plugin: amazon.aws.aws_ec2
+cache: true
+cache_plugin: jsonfile
+cache_connection: .ansible_cache
+cache_timeout: 300
+
 regions:
   - us-east-1
 
