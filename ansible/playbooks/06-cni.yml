@@ -1,0 +1,6 @@
+- name: Create CNI config directory
+  hosts: role_worker
+  become: true
+  any_errors_fatal: true
+  roles:
+    - cni

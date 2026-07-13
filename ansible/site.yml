@@ -4,3 +4,4 @@
 - import_playbook: playbooks/03-etcd.yml
 - import_playbook: playbooks/04-control-plane.yml
 - import_playbook: playbooks/05-workers.yml
+- import_playbook: playbooks/06-cni.yml
