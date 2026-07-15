@@ -1,6 +1,6 @@
-- name: Create CNI config directory
-  hosts: role_worker
+- name: Deploy Cilium CNI
+  hosts: role_control_plane[0]
   become: true
   any_errors_fatal: true
   roles:
-    - cni
+    - cilium

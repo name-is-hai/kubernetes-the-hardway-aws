@@ -1,0 +1,41 @@
+- name: Check rendered Cilium manifest exists locally
+  stat:
+    path: "{{ cilium_manifest_src }}"
+  register: cilium_manifest
+  delegate_to: localhost
+  become: false
+
+- name: Require rendered Cilium manifest
+  fail:
+    msg: |
+      Missing rendered Cilium manifest: {{ cilium_manifest_src }}
+
+      Render it before running this playbook:
+        scripts/render-cilium.sh
+
+      Ansible intentionally applies committed YAML only. It must not run
+      cilium install or helm install directly against the cluster.
+  when: not cilium_manifest.stat.exists
+
+- name: Copy rendered Cilium manifest to control plane
+  copy:
+    src: "{{ cilium_manifest_src }}"
+    dest: "{{ cilium_manifest_dest }}"
+    mode: "0644"
+
+- name: Apply Cilium manifest
+  command: kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig apply -f {{ cilium_manifest_dest }}
+  register: cilium_apply
+  changed_when: "'created' in cilium_apply.stdout or 'configured' in cilium_apply.stdout"
+
+- name: Wait for Cilium operator rollout
+  command: kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig -n {{ cilium_namespace }} rollout status deployment/cilium-operator --timeout={{ cilium_rollout_timeout }}
+  changed_when: false
+
+- name: Wait for Cilium agent rollout
+  command: kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig -n {{ cilium_namespace }} rollout status daemonset/cilium --timeout={{ cilium_rollout_timeout }}
+  changed_when: false
+
+- name: Wait for Kubernetes nodes to become Ready
+  command: kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig wait --for=condition=Ready nodes --all --timeout={{ cilium_rollout_timeout }}
+  changed_when: false

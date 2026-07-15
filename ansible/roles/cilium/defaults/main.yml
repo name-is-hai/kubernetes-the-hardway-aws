@@ -1,0 +1,4 @@
+cilium_manifest_src: "{{ playbook_dir }}/../../k8s/cilium/cilium.yaml"
+cilium_manifest_dest: /tmp/cilium.yaml
+cilium_namespace: kube-system
+cilium_rollout_timeout: 5m

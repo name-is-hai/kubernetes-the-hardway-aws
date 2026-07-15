@@ -117,9 +117,11 @@ Build common base into both AMIs:
 - `crictl`.
 - `kubelet`.
 - `kubectl`.
-- CNI plugins.
+- CNI plugin binaries for fallback/debug use.
 - Helm.
-- `/opt/cni/bin` populated with CNI plugin binaries.
+- `/opt/cni/bin` populated with standard CNI plugin binaries where useful.
+- Cilium is not baked into the AMI; render and apply it in Phase 9 so its
+  manifest, CRDs, and runtime settings remain cluster-specific.
 
 Build control-plane AMI with:
 - Common base.
@@ -224,6 +226,16 @@ Security group egress model:
 - Allow DNS to the VPC resolver, for example `192.168.0.2` in the `192.168.0.0/16` VPC.
 - Allow Kubernetes internal traffic inside the VPC, such as API server `6443`, etcd `2379-2380`, and kubelet `10250`.
 - Add TCP `443` to `0.0.0.0/0` only if nodes must reach public internet dependencies through NAT.
+
+Load balancer security group model:
+- An internal API NLB fronts `kube-apiserver` on TCP `6443`.
+- DNS resolution for the NLB name is handled by node egress to the VPC resolver; the NLB does not need DNS egress.
+- If the API NLB is created without a security group, worker egress to TCP `6443` must allow the NLB private IPs, usually by allowing the VPC CIDR or the private subnet CIDRs where the NLB is placed.
+- If using NLB security group support, attach a dedicated NLB security group and allow:
+  - Worker/control-plane clients to egress TCP `6443` to the NLB security group.
+  - The NLB security group to reach control-plane targets on TCP `6443`.
+  - Control-plane targets to allow TCP `6443` from the NLB security group.
+- Do not confuse worker-to-API traffic with API-server-to-kubelet traffic. `kubectl logs`, `exec`, `attach`, and `port-forward` require control-plane egress to worker kubelet TCP `10250` and worker ingress from the control-plane security group on TCP `10250`.
 
 Tags:
 - `Project = k8s-hardway`
@@ -468,22 +480,43 @@ Learn:
 - Pod networking.
 - Service networking.
 - DNS inside Kubernetes.
+- Why bridge CNI needs AWS pod routes for cross-node traffic.
+- How Cilium provides pod networking without per-node AWS route-table entries.
+- Cilium operator, agent DaemonSet, CNI install path, and CRDs.
+- Basic NetworkPolicy enforcement with Cilium.
+- Why Cilium manifests are rendered and reviewed before Ansible applies them.
 
 Install:
-- Calico or Cilium.
+- Cilium in overlay/tunnel mode first.
+- Render Cilium YAML with the Cilium CLI or Helm before the Ansible run.
+- Commit rendered Cilium YAML under `k8s/cilium/` and optionally mirror it to the S3 cache.
+- Apply rendered Cilium YAML with Ansible; do not run `cilium install` or `helm install` live from Ansible.
+- Pin the Cilium version and document the values used to render the manifest.
 - CoreDNS.
 
 Validate:
 ```bash
 kubectl get nodes
 kubectl get pods -A
+kubectl -n kube-system get pods -l k8s-app=cilium
+kubectl -n kube-system get pods -l name=cilium-operator
 kubectl run dns-test --image=busybox:1.36 --restart=Never -- nslookup kubernetes.default
 ```
 
 Done when:
 - Nodes are `Ready`.
+- Cilium agent pods are running on every worker.
+- Cilium operator is running.
+- Rendered Cilium manifests and values are committed and version-pinned.
 - Pods can start.
+- Pods on different workers can reach each other.
+- Services work across workers without manually adding AWS routes for PodCIDRs.
 - DNS works.
+
+Advanced follow-up:
+- Enable Hubble for flow visibility.
+- Add NetworkPolicy examples and verify allowed/denied traffic.
+- Evaluate Cilium kube-proxy replacement after the baseline is stable.
 
 ## Phase 10: Ingress and App Traffic
 
@@ -537,6 +570,162 @@ Done when:
 - Metrics are visible.
 - Logs are collected.
 - Smoke and load tests pass.
+
+## Advanced Platform Roadmap
+
+Use this after the hard-way baseline is working. The baseline proves the control plane, workers, Cilium CNI, kube-proxy, Services, and DNS. These phases turn the lab into a more production-shaped platform.
+
+### Advanced Networking
+
+Learn:
+- How pod traffic crosses nodes.
+- Difference between routed pod networking and overlay pod networking.
+- Cilium eBPF networking and policy model.
+- Cilium overlay vs native routing.
+- Hubble flow visibility.
+- Cilium NetworkPolicy and Kubernetes NetworkPolicy.
+- Service load balancing beyond kube-proxy.
+
+Build:
+- Cilium health and connectivity checks.
+- Hubble relay and UI or CLI flow inspection.
+- NetworkPolicy examples.
+- Cross-node pod-to-pod smoke tests.
+- DNS and Service tests across nodes.
+
+Done when:
+- Pods on different workers can reach each other.
+- Service traffic works across workers.
+- NetworkPolicy behavior is understood and tested.
+- Hubble can show DNS and pod-to-pod flows.
+
+### Ingress And External Traffic
+
+Learn:
+- Service types: `ClusterIP`, `NodePort`, `LoadBalancer`.
+- Ingress vs Gateway API.
+- How AWS ALB/NLB reaches private worker nodes.
+- TLS termination options.
+
+Build:
+- Ingress controller such as NGINX, Envoy Gateway, Traefik, or HAProxy.
+- Smoke app Deployment, Service, and Ingress.
+- Optional AWS Load Balancer Controller later.
+
+Done when:
+- External traffic reaches a workload through the intended load balancer path.
+- Host-based or path-based routing works.
+
+### Storage
+
+Learn:
+- PersistentVolume, PersistentVolumeClaim, StorageClass.
+- CSI driver responsibilities.
+- StatefulSet storage behavior.
+
+Build:
+- AWS EBS CSI driver.
+- Default or named StorageClass.
+- PVC smoke test.
+- StatefulSet smoke test.
+
+Done when:
+- Pods can dynamically provision EBS-backed volumes.
+- Data survives pod rescheduling on the same volume.
+
+### Security
+
+Learn:
+- RBAC least privilege.
+- Pod Security Admission.
+- Kubelet certificate behavior.
+- Secrets encryption rotation.
+- Audit logging.
+- OIDC authentication.
+
+Build:
+- Pod Security Admission labels for namespaces.
+- Restricted RBAC examples.
+- Audit policy tuning.
+- Secrets encryption rotation procedure.
+- Optional OIDC auth flow.
+
+Done when:
+- Admin access is not the only working access path.
+- Audit events are useful.
+- Workloads run with restricted security defaults where possible.
+
+### Observability
+
+Learn:
+- Metrics Server vs Prometheus.
+- Node, pod, control-plane, and application metrics.
+- Log collection model.
+- Alerting basics.
+
+Build:
+- Metrics Server.
+- Prometheus and Grafana.
+- Loki or another log pipeline.
+- Alertmanager basics.
+- Dashboards for nodes, API server, etcd, CoreDNS, and workloads.
+
+Done when:
+- `kubectl top` works.
+- Cluster metrics are visible in Grafana.
+- Logs from system pods and workloads are queryable.
+
+### Reliability And Operations
+
+Learn:
+- Etcd backup and restore.
+- Node drain and upgrade flow.
+- PodDisruptionBudget.
+- Resource requests and limits.
+- PriorityClass.
+- Quotas and LimitRanges.
+
+Build:
+- Etcd snapshot and restore runbook.
+- Worker drain test.
+- Control-plane rolling restart notes.
+- PDB examples.
+- Quota and LimitRange examples.
+- Automated smoke tests.
+
+Done when:
+- The cluster can be validated after rebuilds.
+- Etcd recovery is documented and tested.
+- Planned node maintenance does not surprise workloads.
+
+### AWS Integration
+
+Learn:
+- IAM permissions by component.
+- AWS-native load balancing.
+- Route53 automation.
+- Private registry access.
+- Autoscaling boundaries for self-managed clusters.
+
+Build:
+- AWS Load Balancer Controller.
+- ExternalDNS with Route53.
+- EBS CSI IAM permissions.
+- Optional image registry/cache path.
+- Optional Cluster Autoscaler.
+
+Done when:
+- AWS integrations are scoped by least privilege.
+- Workloads can expose services and use storage without manual AWS console steps.
+
+Recommended order:
+1. Finish CoreDNS and DNS smoke tests.
+2. Install Cilium and verify cross-node pod and Service traffic.
+3. Add ingress and a smoke app.
+4. Add Metrics Server.
+5. Add EBS CSI.
+6. Add Prometheus, Grafana, and logs.
+7. Add security hardening and operational runbooks.
 
 ## Daily Workflow After AMI Exists
 

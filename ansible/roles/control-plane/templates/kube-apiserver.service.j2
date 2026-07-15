@@ -26,6 +26,7 @@ ExecStart=/usr/local/bin/kube-apiserver \
   --encryption-provider-config=/var/lib/kubernetes/encryption-config.yaml \
   --kubelet-certificate-authority=/etc/kubernetes/pki/ca.crt \
   --kubelet-client-certificate=/etc/kubernetes/pki/kube-apiserver.crt \
+  --kubelet-preferred-address-types=InternalIP,Hostname,InternalDNS,ExternalDNS,ExternalIP \
   --kubelet-client-key=/etc/kubernetes/pki/kube-apiserver.key \
   --runtime-config=api/all=true \
   --secure-port=6443 \

@@ -74,7 +74,38 @@ Pods:                       10.0.0.0/16
 ```
 
 These ranges must not overlap. AWS owns the VPC range. Kubernetes owns the
-Service and Pod ranges through kube-apiserver, kube-proxy, and the CNI.
+Service and Pod ranges through kube-apiserver, kube-proxy, and Cilium.
+
+## Cilium Networking Model
+
+Phase 9 uses Cilium instead of the simple bridge CNI. The bridge CNI was useful
+for learning the raw mechanics, but it requires AWS routes for every worker
+PodCIDR before pods on different nodes can reliably talk to each other. Cilium is
+now the default CNI for this lab so cross-node pod traffic is handled by the CNI
+layer instead of by manual VPC route-table entries.
+
+Initial Cilium target:
+
+- Do not bake Cilium into the AMI.
+- Render Cilium manifests with the Cilium CLI or Helm before the Ansible run.
+- Commit the rendered YAML and keep a cache copy for repeatable installs.
+- Apply the rendered YAML with Ansible.
+- Pin the Cilium version and document the values used to render it.
+- Use overlay/tunnel mode first to avoid per-node AWS PodCIDR routes.
+- Keep kube-proxy enabled for the first Cilium pass to reduce the number of
+  moving parts.
+- Add Hubble and kube-proxy replacement later as advanced networking work.
+
+Cilium owns:
+
+- Pod networking.
+- CNI config installation on workers.
+- Cross-node pod traffic.
+- NetworkPolicy enforcement.
+- Cilium CRDs and operator-managed cluster networking state.
+
+kube-proxy still owns Service programming in the initial design. A later phase
+can evaluate Cilium kube-proxy replacement once Cilium itself is stable.
 
 Private instances use NAT Gateway for public package downloads unless the
 dependency is available through a VPC endpoint, private registry, or S3 cache.

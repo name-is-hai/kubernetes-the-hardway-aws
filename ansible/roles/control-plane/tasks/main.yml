@@ -159,3 +159,24 @@
     - kube-apiserver
     - kube-controller-manager
     - kube-scheduler
+
+- name: Render kube-apiserver to kubelet RBAC
+  template:
+    src: kube-apiserver-to-kubelet-rbac.yaml.j2
+    dest: /tmp/kube-apiserver-to-kubelet-rbac.yaml
+    mode: "0644"
+  run_once: true
+
+- name: Wait for Kubernetes API through admin kubeconfig
+  command: kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig get --raw=/readyz
+  register: api_ready
+  changed_when: false
+  until: api_ready.rc == 0
+  retries: 30
+  delay: 5
+  run_once: true
+
+- name: Apply kube-apiserver to kubelet RBAC
+  command: kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig apply -f /tmp/kube-apiserver-to-kubelet-rbac.yaml
+  run_once: true
+  changed_when: true

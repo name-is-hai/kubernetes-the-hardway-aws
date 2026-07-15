@@ -3,7 +3,8 @@ resource "aws_lb" "network" {
   load_balancer_type = "network"
   internal           = true
 
-  subnets = var.nlb_subnets_ids
+  security_groups = distinct(compact(var.security_group_ids))
+  subnets         = var.nlb_subnets_ids
 }
 
 resource "aws_lb_listener" "network" {

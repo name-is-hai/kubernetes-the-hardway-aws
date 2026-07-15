@@ -1,0 +1,17 @@
+# Rendered with the Cilium Helm chart pinned in k8s/cilium/README.md.
+# Keep kube-proxy enabled for the first Cilium pass.
+kubeProxyReplacement: "false"
+
+# Use an overlay first so AWS route tables do not need one route per PodCIDR.
+routingMode: tunnel
+tunnelProtocol: vxlan
+
+# Let Kubernetes allocate node PodCIDRs and let Cilium consume them.
+ipam:
+  mode: kubernetes
+
+operator:
+  replicas: 2
+
+hubble:
+  enabled: false

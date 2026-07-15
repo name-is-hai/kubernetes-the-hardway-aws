@@ -50,12 +50,39 @@ module "control_plane_security_group" {
       port     = 6443
       cidr     = module.vpc.vpc_cidr_block
     },
+  ]
+}
+
+module "api_nlb_security_group" {
+  source = "../../modules/security-groups"
+
+  vpc_id                     = module.vpc.vpc_id
+  security_group_name        = "api-nlb-security-group"
+  security_group_description = "Security group for Kubernetes API NLB"
+
+  sg_ingress_rules = [
     {
       protocol = "tcp"
-      port     = 10250
+      port     = 6443
       cidr     = module.vpc.vpc_cidr_block
     },
   ]
+}
+
+resource "aws_vpc_security_group_egress_rule" "api_nlb_to_control_plane" {
+  security_group_id            = module.api_nlb_security_group.security_group_id
+  referenced_security_group_id = module.control_plane_security_group.security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 6443
+  to_port                      = 6443
+}
+
+resource "aws_vpc_security_group_ingress_rule" "control_plane_api_from_nlb" {
+  security_group_id            = module.control_plane_security_group.security_group_id
+  referenced_security_group_id = module.api_nlb_security_group.security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 6443
+  to_port                      = 6443
 }
 
 resource "aws_vpc_security_group_ingress_rule" "etcd_from_control_plane" {
@@ -66,7 +93,7 @@ resource "aws_vpc_security_group_ingress_rule" "etcd_from_control_plane" {
   to_port                      = 2380
 }
 
-resource "aws_vpc_security_group_egress_rule" "etcd_from_control_plane" {
+resource "aws_vpc_security_group_egress_rule" "control_plane_to_etcd" {
   security_group_id            = module.control_plane_security_group.security_group_id
   referenced_security_group_id = module.control_plane_security_group.security_group_id
   ip_protocol                  = "tcp"
@@ -103,14 +130,22 @@ module "worker_security_group" {
       cidr     = "${cidrhost(module.vpc.vpc_cidr_block, 2)}/32"
     },
   ]
+}
 
-  sg_ingress_rules = [
-    {
-      protocol = "tcp"
-      port     = 10250
-      cidr     = module.vpc.vpc_cidr_block
-    },
-  ]
+resource "aws_vpc_security_group_ingress_rule" "kubelet_worker_from_control_plane" {
+  security_group_id            = module.worker_security_group.security_group_id
+  referenced_security_group_id = module.control_plane_security_group.security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 10250
+  to_port                      = 10250
+}
+
+resource "aws_vpc_security_group_egress_rule" "control_plane_to_kubelet_worker" {
+  security_group_id            = module.control_plane_security_group.security_group_id
+  referenced_security_group_id = module.worker_security_group.security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 10250
+  to_port                      = 10250
 }
 
 resource "aws_vpc_security_group_ingress_rule" "worker_to_worker_vxlan" {

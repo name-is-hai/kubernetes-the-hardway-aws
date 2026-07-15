@@ -8,3 +8,4 @@ kubernetes_service_ip: 172.16.0.1
 cluster_dns_ip: 172.16.0.10
 pod_cidr: 10.0.0.0/16
 encryption_key: "EmChrOahiJ+gRs9yoiiJOpSztf7MumJm+AUp9EB07uY="
+coredns_image: registry.k8s.io/coredns/coredns:v1.14.4

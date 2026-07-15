@@ -17,3 +17,8 @@ variable "nlb_tg_port" {
 variable "cp_instance_ids" {
   type = list(string)
 }
+
+variable "security_group_ids" {
+  type    = list(string)
+  default = []
+}
