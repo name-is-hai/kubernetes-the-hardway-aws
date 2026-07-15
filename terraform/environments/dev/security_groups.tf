@@ -112,3 +112,19 @@ module "worker_security_group" {
     },
   ]
 }
+
+resource "aws_vpc_security_group_ingress_rule" "worker_to_worker_vxlan" {
+  security_group_id            = module.worker_security_group.security_group_id
+  referenced_security_group_id = module.worker_security_group.security_group_id
+  ip_protocol                  = "udp"
+  from_port                    = 8472
+  to_port                      = 8472
+}
+
+resource "aws_vpc_security_group_egress_rule" "worker_to_worker_vxlan" {
+  security_group_id            = module.worker_security_group.security_group_id
+  referenced_security_group_id = module.worker_security_group.security_group_id
+  ip_protocol                  = "udp"
+  from_port                    = 8472
+  to_port                      = 8472
+}
