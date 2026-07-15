@@ -1,0 +1,10 @@
+- name: Render CoreDNS manifest
+  template:
+    src: coredns.yaml.j2
+    dest: /tmp/coredns.yml
+    mode: "0644"
+
+- name: Apply CoreDNS manifest
+  command: kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig apply -f /tmp/coredns.yml
+  register: coredns_apply
+  changed_when: "'created' in coredns_apply.stdout or 'configured' in coredns_apply.stdout"
