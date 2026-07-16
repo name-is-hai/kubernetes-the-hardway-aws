@@ -53,6 +53,59 @@ module "control_plane_security_group" {
   ]
 }
 
+module "public_nlb_security_group" {
+  source = "../../modules/security-groups"
+
+  vpc_id                     = module.vpc.vpc_id
+  security_group_name        = "public-nlb-security-group"
+  security_group_description = "Security group for public NLB"
+
+  sg_ingress_rules = [
+    {
+      protocol = "tcp"
+      port     = 443
+      cidr     = "0.0.0.0/0"
+    },
+    {
+      protocol = "tcp"
+      port     = 80
+      cidr     = "0.0.0.0/0"
+    },
+  ]
+}
+
+resource "aws_vpc_security_group_egress_rule" "public_http_nlb_to_worker" {
+  security_group_id            = module.public_nlb_security_group.security_group_id
+  referenced_security_group_id = module.worker_security_group.security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 30080
+  to_port                      = 30080
+}
+
+resource "aws_vpc_security_group_egress_rule" "public_https_nlb_to_worker" {
+  security_group_id            = module.public_nlb_security_group.security_group_id
+  referenced_security_group_id = module.worker_security_group.security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 30443
+  to_port                      = 30443
+}
+
+resource "aws_vpc_security_group_ingress_rule" "worker_from_public_http_nlb" {
+  security_group_id            = module.worker_security_group.security_group_id
+  referenced_security_group_id = module.public_nlb_security_group.security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 30080
+  to_port                      = 30080
+}
+
+resource "aws_vpc_security_group_ingress_rule" "worker_from_public_https_nlb" {
+  security_group_id            = module.worker_security_group.security_group_id
+  referenced_security_group_id = module.public_nlb_security_group.security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 30443
+  to_port                      = 30443
+}
+
 module "api_nlb_security_group" {
   source = "../../modules/security-groups"
 

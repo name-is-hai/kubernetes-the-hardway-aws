@@ -53,6 +53,11 @@ output "api_nlb_dns_name" {
   value       = module.cp_nlb.api_nlb_dns_name
 }
 
+output "public_nlb_dns_name" {
+  description = "DNS name of the public application Network Load Balancer."
+  value       = aws_lb.public_network.dns_name
+}
+
 output "api_target_group_arn" {
   description = "ARN of the Kubernetes API target group."
   value       = module.cp_nlb.api_target_group_arn
