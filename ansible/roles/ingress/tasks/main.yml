@@ -1,0 +1,50 @@
+- name: Check rendered HAProxy manifest exists locally
+  stat:
+    path: "{{ haproxy_ingress_manifest_src }}/haproxy-ingress.yaml"
+  register: haproxy_ingress_manifest
+  delegate_to: localhost
+  become: false
+
+- name: Require rendered HAProxy manifest
+  fail:
+    msg: |
+      Missing rendered HAProxy manifest: {{ haproxy_ingress_manifest_src }}
+
+      Render it before running this playbook:
+        scripts/render-haproxy-ingress.sh
+
+      Ansible intentionally applies committed YAML only. It must not run
+      haproxy install or helm install directly against the cluster.
+  when: not haproxy_ingress_manifest.stat.exists
+
+- name: Create HAProxy temp directory
+  file:
+    path: /tmp/haproxy
+    state: directory
+    mode: "0755"
+
+- name: Copy namespace manifest file HAProxy to control-plane
+  copy:
+    src: "{{ haproxy_ingress_manifest_src }}/namespace.yaml"
+    dest: "/tmp/haproxy/namespace.yaml"
+    mode: "0644"
+
+- name: Copy ingress manifest file HAProxy to control-plane
+  copy:
+    src: "{{ haproxy_ingress_manifest_src }}/haproxy-ingress.yaml"
+    dest: "/tmp/haproxy/haproxy-ingress.yaml"
+    mode: "0644"
+
+- name: Create HAProxy namespace
+  command: kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig apply -f /tmp/haproxy/namespace.yaml
+  register: namespace_apply
+  changed_when: "'created' in namespace_apply.stdout or 'configured' in namespace_apply.stdout"
+
+- name: Create HAProxy ingress
+  command: kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig apply -f /tmp/haproxy/haproxy-ingress.yaml
+  register: haproxy_ingress_apply
+  changed_when: "'created' in haproxy_ingress_apply.stdout or 'configured' in haproxy_ingress_apply.stdout"
+
+- name: Wait for HAProxy ingress rollout
+  command: kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig -n haproxy-ingress rollout status deployment/haproxy-ingress-kubernetes-ingress --timeout=180s
+  changed_when: false

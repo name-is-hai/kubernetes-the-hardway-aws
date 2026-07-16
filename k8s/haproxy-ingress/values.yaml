@@ -1,0 +1,13 @@
+controller:
+  service:
+    enabled: true
+    type: NodePort
+    nodePorts:
+      http: 30080
+      https: 30443
+    enablePorts:
+      http: true
+      https: true
+      quic: false
+      stat: false
+      admin: false

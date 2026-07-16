@@ -1,0 +1,1 @@
+haproxy_ingress_manifest_src: "{{ playbook_dir }}/../../k8s/haproxy-ingress"

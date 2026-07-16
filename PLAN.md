@@ -522,26 +522,56 @@ Advanced follow-up:
 
 Learn:
 - Service vs ingress.
-- Ingress controller.
-- ALB/NLB path.
+- HAProxy Kubernetes Ingress Controller.
+- AWS NLB to worker `NodePort` path.
+- Layer 4 vs Layer 7 responsibilities.
 - Host headers.
+- Why `ClusterIP` is internal-only and `NodePort` is the stable AWS target.
 
 Install:
-- Ingress controller.
+- HAProxy ingress controller rendered from a pinned Helm chart.
+- HAProxy `NodePort` service with fixed ports:
+  - HTTP: `30080`
+  - HTTPS: `30443`
+- Public application NLB.
+- NLB target groups that point to worker instances on `30080` and `30443`.
 - Smoke app.
-- App service.
+- App `ClusterIP` service.
 - Ingress object.
 
 Validate:
 ```bash
-kubectl apply -f k8s/smoke-app/
-kubectl rollout status deployment/smoke-api -n smoke
-curl -H "Host: smoke.example.local" http://<alb-dns-name>
+helm repo add haproxytech https://haproxytech.github.io/helm-charts
+helm repo update
+helm search repo haproxytech/kubernetes-ingress --versions | head
+
+helm template haproxy-ingress haproxytech/kubernetes-ingress \
+  --namespace haproxy-ingress \
+  --version <PINNED_CHART_VERSION> \
+  -f k8s/haproxy-ingress/values.yaml \
+  > k8s/haproxy-ingress/haproxy-ingress.yaml
+
+kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig \
+  apply -f k8s/haproxy-ingress/haproxy-ingress.yaml
+
+kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig \
+  -n haproxy-ingress get pods,svc -o wide
+
+kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig \
+  apply -f k8s/smoke-app/
+
+kubectl --kubeconfig /etc/kubernetes/admin.kubeconfig \
+  -n smoke-app rollout status deployment/smoke-app
+
+curl -H "Host: smoke.local" http://<app-nlb-dns-name>
 ```
 
 Done when:
-- Smoke app responds through ingress.
-- Public traffic reaches worker nodes through the intended load balancer path.
+- HAProxy controller pods are running.
+- HAProxy service exposes the expected fixed NodePorts.
+- Public traffic reaches worker nodes through the NLB target groups.
+- Smoke app responds through HAProxy ingress.
+- Host-based routing works.
 
 ## Phase 11: Metrics, Logging, and Load Test
 
@@ -608,7 +638,8 @@ Learn:
 - TLS termination options.
 
 Build:
-- Ingress controller such as NGINX, Envoy Gateway, Traefik, or HAProxy.
+- HAProxy Kubernetes Ingress Controller with a fixed `NodePort` service.
+- Public AWS NLB that forwards `80` to worker `30080` and `443` to worker `30443`.
 - Smoke app Deployment, Service, and Ingress.
 - Optional AWS Load Balancer Controller later.
 

@@ -1,0 +1,5 @@
+- name: Deploy HAProxy
+  hosts: role_control_plane[0]
+  become: true
+  roles:
+    - ingress
