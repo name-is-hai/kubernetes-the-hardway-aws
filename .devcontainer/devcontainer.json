@@ -1,0 +1,7 @@
+{
+  "name": "The kubernestes hardway in aws",
+  "image": "ghcr.io/name-is-hai/ubi9-dev:sha-6610b80",
+  "remoteUser": "dev",
+  "updateRemoteUserUID": false,
+  "postCreateCommand": "curl -fsSL https://gist.githubusercontent.com/name-is-hai/5170a07590c0d3f6afe35079852c5634/raw/6c653f66130af71f56d9c45d7801f58b8f3aa5bb/postinstall-devcontainer.sh | bash"
+}
